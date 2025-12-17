@@ -1,3 +1,6 @@
+// Package pgqueue provides a lightweight, PostgreSQL-backed job queue for Go.
+//
+// It enables asynchronous background processing using PostgreSQL while offering safe concurrency, retries with backoff, delayed jobs, and cron scheduling.
 package pgqueue
 
 import (
@@ -55,59 +58,6 @@ func (q *Queue) migrate(ctx context.Context) error {
 	return err
 }
 
-// runMaintenanceLoop handles all background system jobs
-func (q *Queue) runMaintenanceLoop() {
-	defer q.wg.Done()
-
-	var rescueTicker *time.Ticker
-	var cleanupTicker *time.Ticker
-
-	if q.config.rescueEnabled {
-		rescueTicker = time.NewTicker(q.config.rescueInterval)
-		q.logger.Info("Internal Rescue started", "interval", q.config.rescueInterval.Minutes())
-	} else {
-		rescueTicker = time.NewTicker(24 * time.Hour)
-		rescueTicker.Stop()
-	}
-
-	if q.config.cleanupEnabled {
-		cleanupTicker = time.NewTicker(q.config.cleanupInterval)
-		q.logger.Info("Internal Cleanup started", "interval", q.config.cleanupInterval.Hours(), "strategy", q.config.cleanupStrategy)
-	} else {
-		cleanupTicker = time.NewTicker(24 * time.Hour)
-		cleanupTicker.Stop()
-	}
-
-	defer func() {
-		if rescueTicker != nil {
-			rescueTicker.Stop()
-		}
-		if cleanupTicker != nil {
-			cleanupTicker.Stop()
-		}
-	}()
-
-	for {
-		select {
-		case <-q.ctx.Done():
-			return
-
-		case <-rescueTicker.C:
-			count, err := q.RescueStuckTasks(q.ctx, q.config.rescueVisibility)
-			if err != nil {
-				q.logger.Error("Rescue failed", "error", err)
-			} else if count > 0 {
-				q.logger.Info("Rescued stuck tasks", "count", count)
-			}
-
-		case <-cleanupTicker.C:
-			if err := q.runCleanup(q.ctx); err != nil {
-				q.logger.Error("Cleanup failed", "error", err)
-			}
-		}
-	}
-}
-
 // Enqueue adds a job to the queue
 func (q *Queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ...EnqueueOption) error {
 	cfg := enqueueConfig{
@@ -152,26 +102,4 @@ func (q *Queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ..
 		return err
 	}
 	return nil
-}
-
-// RescueStuckTasks finds tasks that have been 'processing' for too long
-// and resets them to 'pending' so they can be picked up again.
-func (q *Queue) RescueStuckTasks(ctx context.Context, timeout time.Duration) (int64, error) {
-	query := `
-        UPDATE tasks
-        SET status = 'pending',
-            updated_at = NOW(),
-            next_run_at = NOW(),
-            attempts = attempts + 1,
-            last_error = 'detected stuck task; resetting'
-        WHERE status = 'processing'
-          AND updated_at < NOW() - ($1 * INTERVAL '1 seconds')
-          AND attempts < max_retries
-    `
-	res, err := q.db.ExecContext(ctx, query, timeout.Seconds())
-	if err != nil {
-		return 0, err
-	}
-
-	return res.RowsAffected()
 }
