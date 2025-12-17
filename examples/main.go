@@ -76,7 +76,10 @@ func main() {
 	}
 
 	// Start Workers in a background gorutine
-	go queue.StartConsumer(ctx, 3, processTask)
+	mux := pgqueue.NewServeMux()
+	mux.HandleFunc(TaskSendEmail, processEmailSendTask)
+	
+	go queue.StartConsumer(ctx, 3, mux)
 
 	go func() {
 		time.Sleep(2 * time.Second)
@@ -100,7 +103,7 @@ func main() {
 	fmt.Println("Stopping...")
 }
 
-func processTask(ctx context.Context, taskType pgqueue.TaskType, t pgqueue.Task) error {
+func processEmailSendTask(ctx context.Context, t *pgqueue.Task) error {
 	var p EmailPayload
 	if err := json.Unmarshal(t.Payload, &p); err != nil {
 		return fmt.Errorf("bad payload: %v", err)

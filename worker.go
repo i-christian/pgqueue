@@ -137,7 +137,7 @@ func (q *Queue) processOne(ctx context.Context, handler WorkerHandler) (bool, er
 				runErr = fmt.Errorf("PANIC: %v", r)
 			}
 		}()
-		return handler(ctx, task.Type, task)
+		return handler.ProcessTask(ctx, &task)
 	}
 
 	jobErr := runTask()
