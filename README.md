@@ -1,7 +1,11 @@
 # pgqueue
 
 ## Description
-A lightweight, durable, PostgreSQL-backed job queue for Go. The motivation for this project was just to figure out how background queues are implemented. So this is just a `learning project`.
+
+A lightweight, asynchronous, durable, PostgreSQL-backed job queue for Go.
+
+The motivation for this project was to understand how background job queues are built.
+This is primarily a **learning project**, but aims to follow solid, production-style patterns.
 
 `pgqueue` provides:
 
@@ -16,7 +20,7 @@ A lightweight, durable, PostgreSQL-backed job queue for Go. The motivation for t
 
 ## Why pgqueue?
 
-If you already have PostgreSQL, you don’t need Redis, SQS, or Kafka to increase your tech stack just to run background jobs.
+If you already use PostgreSQL, you don’t need Redis, SQS, or Kafka just to run background jobs.
 
 **Postgres is already:**
 
@@ -24,7 +28,7 @@ If you already have PostgreSQL, you don’t need Redis, SQS, or Kafka to increas
 * Transactional
 * Highly available
 
-`pgqueue` uses standard SQL primitives to build a safe background jobs queue.
+`pgqueue` uses standard SQL primitives to build a safe background job queue.
 
 ---
 
@@ -37,23 +41,25 @@ go get github.com/i-christian/pgqueue
 ---
 
 ## Enqueue a Job
+
 ```go
 type EmailPayload struct {
     Subject string `json:"subject"`
 }
-```
 
-```go
-queue.Enqueue(ctx, EmailPayload{
-    Subject: "Welcome!",
-})
+queue.Enqueue(ctx,
+    "task:send:email",
+    EmailPayload{Subject: "Welcome!"},
+)
 ```
 
 ### With options
 
 ```go
-queue.Enqueue(ctx, payload,
-    pgqueue.WithPriority(10),
+queue.Enqueue(ctx,
+    "task:send:email",
+    payload,
+    pgqueue.WithPriority(pgqueue.HighPriority),
     pgqueue.WithDelay(5*time.Minute),
     pgqueue.WithMaxRetries(10),
     pgqueue.WithDedup("email:user:123"),
@@ -62,24 +68,62 @@ queue.Enqueue(ctx, payload,
 
 ---
 
-## Start Workers
+## Start Workers (ServeMux + slog)
+
+`pgqueue` uses a `ServeMux` to route tasks by type (similar to `http.ServeMux`).
 
 ```go
-queue.StartConsumer(ctx, 5, func(ctx context.Context, task pgqueue.Task) error {
-    var p EmailPayload
-    json.Unmarshal(task.Payload, &p)
+mux := pgqueue.NewServeMux()
 
-    sendEmail(p.Subject)
-    return nil
-})
+mux.Use(pgqueue.SlogMiddleware(logger, metrics))
+
+mux.HandleFunc("task:send:email", sendEmailHandler)
+mux.HandleFunc("task:cleanup:", cleanupHandler) // prefix match
+mux.HandleFunc("task:report:", reportHandler)
+
+go queue.StartConsumer(ctx, 3, mux)
 ```
+
+---
+
+## ⚠️ NOTE: Bounded Task Types
+
+Task types **must be bounded**.
+
+✅ Good:
+
+```
+task:send:email
+task:cleanup:expired-sessions
+task:report:daily
+```
+
+❌ Bad (unbounded):
+
+```
+task:report:user:123
+task:email:user:UUID
+```
+
+Why?
+
+* Metrics and routing are keyed by task type or prefix
+* Unbounded task types can cause **unbounded memory growth**
+
+**Rule of thumb:**
+Use task **categories**, not per-entity identifiers.
 
 ---
 
 ## Cron Jobs
 
 ```go
-queue.ScheduleCron("0 * * * *", "hourly-report", ReportPayload{})
+queue.ScheduleCron(
+    "0 * * * *",
+    "hourly-report",
+    "task:report:hourly",
+    ReportPayload{ReportName: "Hourly"},
+)
 ```
 
 ---
@@ -96,19 +140,22 @@ queue.ScheduleCron("0 * * * *", "hourly-report", ReportPayload{})
 
 ```go
 stats, _ := queue.Stats(ctx)
-
-fmt.Println(stats.Pending, stats.Processing)
+fmt.Println(stats.Pending, stats.Processing, stats.Failed)
 ```
 
 ---
 
-## Archiving
+## Examples
 
-Move completed jobs out of the hot queue:
+A complete, runnable example using:
 
-```go
-queue.Archive(ctx)
-```
+* ServeMux
+* slog logging
+* priorities
+* retries
+
+➡️ **See the full example here:**
+👉 [https://github.com/i-christian/pgqueue/tree/main/example](https://github.com/i-christian/pgqueue/tree/main/example)
 
 ---
 
@@ -122,6 +169,7 @@ queue.Archive(ctx)
 ---
 
 ## When not to use this
+
 * Ultra-low latency (<1ms)
 * Massive fan-out (millions/sec)
 * Cross-region replication

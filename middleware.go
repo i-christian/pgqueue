@@ -3,20 +3,24 @@ package pgqueue
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 )
 
-func LoggingMiddleware(logger *log.Logger) Middleware {
+func SlogMiddleware(logger *slog.Logger, metrics *Metrics) Middleware {
 	return func(next WorkerHandler) WorkerHandler {
 		return HandlerFunc(func(ctx context.Context, task *Task) error {
 			start := time.Now()
 
-			logger.Printf(
-				"[START] priority=%v, task=%s attempts=%d",
-				task.Priority,
-				task.Type,
-				task.Attempts,
+			metrics.RecordStart(task.Priority, task.Type)
+
+			logger.Info(
+				"task started",
+				slog.String("task_id", task.ID.String()),
+				slog.String("task_type", string(task.Type)),
+				slog.String("priority", task.Priority.String()),
+				slog.Int("priority_value", int(task.Priority)),
+				slog.Int("attempts", task.Attempts),
 			)
 
 			err := next.ProcessTask(ctx, task)
@@ -24,21 +28,30 @@ func LoggingMiddleware(logger *log.Logger) Middleware {
 			elapsed := time.Since(start)
 
 			if err != nil {
-				logger.Printf(
-					"[ERROR] task=%s duration=%s err=%v",
-					task.Type,
-					elapsed,
-					err,
+				metrics.RecordFailure(task.Priority, task.Type, elapsed)
+
+				logger.Error(
+					"task failed",
+					slog.String("task_id", task.ID.String()),
+					slog.String("task_type", string(task.Type)),
+					slog.String("priority", task.Priority.String()),
+					slog.Duration("duration", elapsed),
+					slog.Any("error", err),
 				)
-			} else {
-				logger.Printf(
-					"[DONE] task=%s duration=%s",
-					task.Type,
-					elapsed,
-				)
+				return err
 			}
 
-			return err
+			metrics.RecordSuccess(task.Priority, task.Type, elapsed)
+
+			logger.Info(
+				"task completed",
+				slog.String("task_id", task.ID.String()),
+				slog.String("task_type", string(task.Type)),
+				slog.String("priority", task.Priority.String()),
+				slog.Duration("duration", elapsed),
+			)
+
+			return nil
 		})
 	}
 }

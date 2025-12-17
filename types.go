@@ -32,13 +32,14 @@ const (
 )
 
 func (p Priority) String() string {
-	if p == HighPriority {
+	switch p {
+	case HighPriority:
 		return "high"
-	} else if p == DefaultPriority {
+	case DefaultPriority:
 		return "default"
-	} else if p == LowPriority {
+	case LowPriority:
 		return "low"
-	} else {
+	default:
 		return "unknown"
 	}
 }

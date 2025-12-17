@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +16,8 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// Task type constants.
+// Use bounded, descriptive task categories.
 const (
 	TaskSendEmail   = "task:send:email"
 	TaskCleanupBase = "task:cleanup:"
@@ -36,7 +39,7 @@ type ReportPayload struct {
 }
 
 func main() {
-	// Example connection string
+	// Database connection
 	connStr := "postgres://myuser:mypass@localhost:5432/task_queue?sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -44,7 +47,15 @@ func main() {
 	}
 	defer db.Close()
 
-	queue, err := pgqueue.NewQueue(db, connStr)
+	// Structured logger
+	logger := slog.New(
+		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}),
+	)
+
+	// Initialize queue
+	queue, metrics, err := pgqueue.NewQueue(db, connStr, logger)
 	if err != nil {
 		log.Fatalf("Failed to init queue: %v", err)
 	}
@@ -52,103 +63,76 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// ---- Enqueue some example jobs ----
+
 	queue.Enqueue(ctx,
 		"task:cleanup:expired-sessions",
-		CleanupPayload{
-			Resource: "sessions",
-			DryRun:   false,
-		},
+		CleanupPayload{Resource: "sessions"},
 	)
 
 	queue.Enqueue(ctx,
 		"task:report:daily",
 		ReportPayload{
 			ReportName: "Daily Sales",
-			EmailTo:    "ops@example.com",
+			EmailTo:    "operations@example.com",
 		},
 	)
 
-	// task with no handler test
-	queue.Enqueue(ctx,
-		"task:unknown",
-		CleanupPayload{
-			Resource: "sessions",
-			DryRun:   false,
-		},
-	)
-
-	// High Priority Job
 	go func() {
-		payload := EmailPayload{Subject: "RESET PASSWORD"}
-		err := queue.Enqueue(ctx, TaskSendEmail, payload,
-			pgqueue.WithPriority(pgqueue.HighPriority), // High Priority
-			pgqueue.WithMaxRetries(10),                 // Retry many times
+		queue.Enqueue(ctx,
+			TaskSendEmail,
+			EmailPayload{Subject: "Welcome!"},
+			pgqueue.WithPriority(pgqueue.HighPriority),
 		)
-
-		log.Print(err)
 	}()
 
-	// Low Priority Job
-	go func() {
-		payload := EmailPayload{Subject: "Weekly Newsletter"}
-		err := queue.Enqueue(ctx, TaskSendEmail, payload,
-			pgqueue.WithPriority(pgqueue.LowPriority),
-		)
-		log.Print(err)
-	}()
+	// ---- Worker setup ----
+
+	mux := pgqueue.NewServeMux()
+
+	// Middleware runs for every task
+	mux.Use(pgqueue.SlogMiddleware(logger, metrics))
+
+	// Register handlers
+	mux.HandleFunc(TaskSendEmail, sendEmailHandler)
+	mux.HandleFunc(TaskCleanupBase, cleanupHandler) // prefix match
+	mux.HandleFunc(TaskReportBase, reportHandler)
+
+	// Start workers
+	go queue.StartConsumer(ctx, 3, mux)
+
+	// Register Cron Jobs
+	// "0 * * * * " means every hour on the hour.
+	// "* * * * *" means every minute
+	err = queue.ScheduleCron("* * * * *", "cleanup_report", TaskSendEmail, EmailPayload{Subject: "Minute Report"})
+	if err != nil {
+		log.Fatalf("Failed to schedule cron: %v", err)
+	}
 
 	// Monitor Stats Loop
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
 		for range ticker.C {
 			stats, _ := queue.Stats(ctx)
-			fmt.Printf("--- Queue Stats ---\nPending: %d | Processing: %d | Failed: %d\n",
-				stats.Pending, stats.Processing, stats.Failed)
+			fmt.Printf("--- Queue Stats ---\nPending: %d | Processing: %d | Failed: %d | Success: %d\n",
+				stats.Pending, stats.Processing, stats.Failed, stats.Done)
 		}
 	}()
 
-	// Register Cron Jobs
-	// "0 * * * *" means every hour on the hour.
-	err = queue.ScheduleCron("0 * * * *", "cleanup_report", TaskSendEmail, EmailPayload{Subject: "Hourly Report"})
-	if err != nil {
-		log.Fatalf("Failed to schedule cron: %v", err)
-	}
+	// ---- Graceful shutdown ----
 
-	// Start Workers in a background gorutine
-	mux := pgqueue.NewServeMux()
-	mux.Use(pgqueue.LoggingMiddleware(log.Default()))
-	mux.HandleFunc(TaskSendEmail, processEmailSendTask)
-	mux.HandleFunc(TaskCleanupBase, cleanupHandler)
-	mux.HandleFunc(TaskReportBase, reportHandler)
-
-	go queue.StartConsumer(ctx, 3, mux)
-
-	go func() {
-		time.Sleep(2 * time.Second)
-		fmt.Println("Manually Enqueuing a delayed task...")
-
-		payload := EmailPayload{Subject: "Welcome Email"}
-
-		// Enqueue with options
-		err := queue.Enqueue(ctx, TaskSendEmail, payload,
-			pgqueue.WithDelay(5*time.Second),
-		)
-		if err != nil {
-			log.Println("Enqueue failed:", err)
-		}
-	}()
-
-	// Graceful Shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
-	fmt.Println("Stopping...")
+
+	fmt.Println("Shutting down...")
+	cancel()
 }
 
-func processEmailSendTask(ctx context.Context, t *pgqueue.Task) error {
+func sendEmailHandler(ctx context.Context, t *pgqueue.Task) error {
 	var p EmailPayload
 	if err := json.Unmarshal(t.Payload, &p); err != nil {
-		return fmt.Errorf("bad payload: %v", err)
+		return err
 	}
 	return nil
 }
@@ -156,31 +140,19 @@ func processEmailSendTask(ctx context.Context, t *pgqueue.Task) error {
 func cleanupHandler(ctx context.Context, t *pgqueue.Task) error {
 	var p CleanupPayload
 	if err := json.Unmarshal(t.Payload, &p); err != nil {
-		return fmt.Errorf("cleanup: invalid payload: %w", err)
+		return err
 	}
 
-	// Simulate work
-	select {
-	case <-time.After(1 * time.Second):
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
+	time.Sleep(1 * time.Second)
 	return nil
 }
 
 func reportHandler(ctx context.Context, t *pgqueue.Task) error {
 	var p ReportPayload
 	if err := json.Unmarshal(t.Payload, &p); err != nil {
-		return fmt.Errorf("report: invalid payload: %w", err)
+		return err
 	}
 
-	// Simulate report generation
-	select {
-	case <-time.After(2 * time.Second):
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
+	time.Sleep(2 * time.Second)
 	return nil
 }

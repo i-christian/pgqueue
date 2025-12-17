@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/lib/pq"
@@ -16,8 +17,8 @@ import (
 var schemaSQL string
 
 // NewQueue initializes the queue, a scheduler and runs migrations automatically
-func NewQueue(db *sql.DB, connString string) (*Queue, error) {
-	q := &Queue{
+func NewQueue(db *sql.DB, connString string, logger *slog.Logger) (queue *Queue, metrics *Metrics, err error) {
+	queue = &Queue{
 		db:         db,
 		connString: connString,
 		scheduler: cron.New(cron.WithChain(
@@ -28,13 +29,14 @@ func NewQueue(db *sql.DB, connString string) (*Queue, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := q.migrate(ctx); err != nil {
-		return nil, fmt.Errorf("migration failed: %w", err)
+	if err := queue.migrate(ctx); err != nil {
+		return nil, nil, fmt.Errorf("migration failed: %w", err)
 	}
 
-	q.scheduler.Start()
+	queue.scheduler.Start()
+	metrics = NewMetrics()
 
-	return q, nil
+	return queue, metrics, nil
 }
 
 func (q *Queue) migrate(ctx context.Context) error {
