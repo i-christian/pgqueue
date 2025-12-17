@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -49,10 +50,12 @@ type Queue struct {
 	db         *sql.DB
 	connString string
 	scheduler  *cron.Cron
+	logger     *slog.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	config queueConfig
 }
 
 type Task struct {

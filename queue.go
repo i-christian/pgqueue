@@ -16,33 +16,96 @@ import (
 //go:embed migrations/*
 var schemaSQL string
 
-// NewQueue initializes the queue, a scheduler and runs migrations automatically
-func NewQueue(db *sql.DB, connString string, logger *slog.Logger) (*Queue, *Metrics, error) {
+// NewQueue initializes the queue, runs migrations, and starts internal maintenance.
+func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueOption) (*Queue, *Metrics, error) {
+	cfg := defaultQueueConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
-	queue := &Queue{
+	q := &Queue{
 		db:         db,
 		connString: connString,
+		logger:     logger,
 		scheduler:  cron.New(cron.WithChain(cron.Recover(cron.DefaultLogger))),
 		ctx:        ctx,
 		cancel:     cancel,
+		config:     cfg,
 	}
 
 	migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer migrateCancel()
-
-	if err := queue.migrate(migrateCtx); err != nil {
+	if err := q.migrate(migrateCtx); err != nil {
+		cancel()
 		return nil, nil, err
 	}
 
-	queue.scheduler.Start()
+	q.scheduler.Start()
 
-	return queue, NewMetrics(), nil
+	q.wg.Add(1)
+	go q.runMaintenanceLoop()
+
+	return q, NewMetrics(), nil
 }
 
 func (q *Queue) migrate(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, schemaSQL)
 	return err
+}
+
+// runMaintenanceLoop handles all background system jobs
+func (q *Queue) runMaintenanceLoop() {
+	defer q.wg.Done()
+
+	var rescueTicker *time.Ticker
+	var cleanupTicker *time.Ticker
+
+	if q.config.rescueEnabled {
+		rescueTicker = time.NewTicker(q.config.rescueInterval)
+		q.logger.Info("Internal Rescue started", "interval", q.config.rescueInterval.Minutes())
+	} else {
+		rescueTicker = time.NewTicker(24 * time.Hour)
+		rescueTicker.Stop()
+	}
+
+	if q.config.cleanupEnabled {
+		cleanupTicker = time.NewTicker(q.config.cleanupInterval)
+		q.logger.Info("Internal Cleanup started", "interval", q.config.cleanupInterval.Hours(), "strategy", q.config.cleanupStrategy)
+	} else {
+		cleanupTicker = time.NewTicker(24 * time.Hour)
+		cleanupTicker.Stop()
+	}
+
+	defer func() {
+		if rescueTicker != nil {
+			rescueTicker.Stop()
+		}
+		if cleanupTicker != nil {
+			cleanupTicker.Stop()
+		}
+	}()
+
+	for {
+		select {
+		case <-q.ctx.Done():
+			return
+
+		case <-rescueTicker.C:
+			count, err := q.RescueStuckTasks(q.ctx, q.config.rescueVisibility)
+			if err != nil {
+				q.logger.Error("Rescue failed", "error", err)
+			} else if count > 0 {
+				q.logger.Info("Rescued stuck tasks", "count", count)
+			}
+
+		case <-cleanupTicker.C:
+			if err := q.runCleanup(q.ctx); err != nil {
+				q.logger.Error("Cleanup failed", "error", err)
+			}
+		}
+	}
 }
 
 // Enqueue adds a job to the queue

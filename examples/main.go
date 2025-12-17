@@ -54,8 +54,13 @@ func main() {
 		}),
 	)
 
-	// Initialize queue
-	queue, metrics, err := pgqueue.NewQueue(db, connStr, logger)
+	queue, metrics, err := pgqueue.NewQueue(db, connStr, logger,
+		// Check every 1 min, consider stuck if running > 60 mins
+		pgqueue.WithRescueConfig(1*time.Minute, 60*time.Minute),
+
+		// Run hourly, Archive tasks older than 24 hours
+		pgqueue.WithCleanupConfig(20*time.Second, 1*time.Hour, pgqueue.ArchiveStrategy),
+	)
 	if err != nil {
 		log.Fatalf("Failed to init queue: %v", err)
 	}
@@ -116,29 +121,6 @@ func main() {
 			stats, _ := queue.Stats(ctx)
 			fmt.Printf("--- Queue Stats ---\nPending: %d | Processing: %d | Failed: %d | Success: %d\n",
 				stats.Pending, stats.Processing, stats.Failed, stats.Done)
-		}
-	}()
-
-	// Start the Rescue Loop
-	go func() {
-		// How long a task is allowed to run before we consider it dead?
-		visibilityTimeout := 10 * time.Minute
-
-		// Check for zombies every minute
-		ticker := time.NewTicker(1 * time.Minute)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				count, err := queue.RescueStuckTasks(ctx, visibilityTimeout)
-				if err != nil {
-					log.Printf("Failed to rescue tasks: %v", err)
-				} else if count > 0 {
-					log.Printf("Rescued %d stuck tasks", count)
-				}
-			}
 		}
 	}()
 

@@ -25,12 +25,11 @@ func (q *Queue) StartConsumer(concurrency int, handler WorkerHandler) {
 	)
 
 	if err := listener.Listen("new_task"); err != nil {
-		log.Printf("Failed to listen: %v", err)
+		q.logger.Error("Failed to listen ", "details", err)
 	}
 
 	wakeUp := make(chan struct{}, 1)
 
-	// Notification listener
 	go func() {
 		for {
 			select {
