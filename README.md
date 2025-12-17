@@ -155,7 +155,7 @@ A complete, runnable example using:
 * retries
 
 ➡️ **See the full example here:**
-👉 [https://github.com/i-christian/pgqueue/tree/main/example](https://github.com/i-christian/pgqueue/tree/main/example)
+👉 [Examples](https://github.com/i-christian/pgqueue/tree/main/examples)
 
 ---
 
