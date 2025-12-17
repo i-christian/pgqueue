@@ -37,6 +37,11 @@ go get github.com/i-christian/pgqueue
 ---
 
 ## Enqueue a Job
+```go
+type EmailPayload struct {
+    Subject string `json:"subject"`
+}
+```
 
 ```go
 queue.Enqueue(ctx, EmailPayload{
