@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"log"
 	"math/rand/v2"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,24 +12,29 @@ import (
 )
 
 // StartConsumer starts a worker pool
-func (q *Queue) StartConsumer(ctx context.Context, concurrency int, handler WorkerHandler) {
-	var wg sync.WaitGroup
+func (q *Queue) StartConsumer(concurrency int, handler WorkerHandler) {
+	listener := pq.NewListener(
+		q.connString,
+		10*time.Second,
+		time.Minute,
+		func(ev pq.ListenerEventType, err error) {
+			if err != nil {
+				log.Println("Listener error:", err)
+			}
+		},
+	)
 
-	listener := pq.NewListener(q.connString, 10*time.Second, time.Minute, func(ev pq.ListenerEventType, err error) {
-		if err != nil {
-			log.Println("Listener error:", err)
-		}
-	})
 	if err := listener.Listen("new_task"); err != nil {
 		log.Printf("Failed to listen: %v", err)
 	}
 
 	wakeUp := make(chan struct{}, 1)
 
+	// Notification listener
 	go func() {
 		for {
 			select {
-			case <-ctx.Done():
+			case <-q.ctx.Done():
 				return
 			case <-listener.Notify:
 				select {
@@ -42,19 +46,20 @@ func (q *Queue) StartConsumer(ctx context.Context, concurrency int, handler Work
 	}()
 
 	log.Printf("Starting %d workers...", concurrency)
+
 	for i := range concurrency {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			q.workerLoop(ctx, workerID, handler, wakeUp)
+		q.wg.Add(1)
+		go func(id int) {
+			defer q.wg.Done()
+			q.workerLoop(q.ctx, id, handler, wakeUp)
 		}(i)
 	}
 
-	<-ctx.Done()
-	log.Println("Shutting down workers...")
-	listener.Close()
-	wg.Wait()
-	q.scheduler.Stop()
+	go func() {
+		<-q.ctx.Done()
+		log.Println("Stopping workers...")
+		listener.Close()
+	}()
 }
 
 func (q *Queue) workerLoop(ctx context.Context, _ int, handler WorkerHandler, wakeUp <-chan struct{}) {
@@ -184,5 +189,27 @@ func (q *Queue) handleFailure(ctx context.Context, task Task, jobErr error) {
 		WHERE task_id = $4`, newAttempts, totalWait.Seconds(), jobErr.Error(), task.ID, TaskPending)
 	if err != nil {
 		log.Printf("an error occured %v\n", err)
+	}
+}
+
+func (q *Queue) Shutdown(ctx context.Context) error {
+	log.Println("pgqueue: shutting down...")
+
+	q.cancel()
+
+	q.scheduler.Stop()
+
+	done := make(chan struct{})
+	go func() {
+		q.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("pgqueue: shutdown complete")
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }

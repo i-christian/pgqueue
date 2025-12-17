@@ -99,7 +99,7 @@ func main() {
 	mux.HandleFunc(TaskReportBase, reportHandler)
 
 	// Start workers
-	go queue.StartConsumer(ctx, 3, mux)
+	go queue.StartConsumer(3, mux)
 
 	// Register Cron Jobs
 	// "0 * * * * " means every hour on the hour.
@@ -119,14 +119,41 @@ func main() {
 		}
 	}()
 
+	// Start the Rescue Loop
+	go func() {
+		// How long a task is allowed to run before we consider it dead?
+		visibilityTimeout := 10 * time.Minute
+
+		// Check for zombies every minute
+		ticker := time.NewTicker(1 * time.Minute)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				count, err := queue.RescueStuckTasks(ctx, visibilityTimeout)
+				if err != nil {
+					log.Printf("Failed to rescue tasks: %v", err)
+				} else if count > 0 {
+					log.Printf("Rescued %d stuck tasks", count)
+				}
+			}
+		}
+	}()
+
 	// ---- Graceful shutdown ----
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	fmt.Println("Shutting down...")
-	cancel()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := queue.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Shutdown error: %v", err)
+	}
 }
 
 func sendEmailHandler(ctx context.Context, t *pgqueue.Task) error {

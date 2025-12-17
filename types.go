@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,6 +49,10 @@ type Queue struct {
 	db         *sql.DB
 	connString string
 	scheduler  *cron.Cron
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 type Task struct {
