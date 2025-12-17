@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_tasks_poll ON tasks (status, priority DESC, next_run_at ASC);
 CREATE INDEX IF NOT EXISTS idx_tasks_archive ON tasks (status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_processing_stuck
+    ON tasks (updated_at)
+WHERE status = 'processing';
 
 -- Archive Table
 CREATE TABLE IF NOT EXISTS tasks_archive (LIKE tasks INCLUDING ALL);

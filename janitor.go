@@ -60,19 +60,39 @@ func (q *Queue) runMaintenanceLoop() {
 }
 
 // rescueStuckTasks finds tasks that have been 'processing' for too long
-// and resets them to 'pending' so they can be picked up again.
+// and resets them to 'pending', or marks them failed if retries are exhausted.
 func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration) (int64, error) {
 	query := `
-        UPDATE tasks
-        SET status = 'pending',
-            updated_at = NOW(),
-            next_run_at = NOW(),
-            attempts = attempts + 1,
-            last_error = 'detected stuck task; resetting'
-        WHERE status = 'processing'
-          AND updated_at < NOW() - ($1 * INTERVAL '1 seconds')
-          AND attempts < max_retries
-    `
+		UPDATE tasks
+		SET
+			status = CASE
+				WHEN attempts >= max_retries THEN 'failed'
+				WHEN status = 'processing' THEN 'pending'
+				ELSE status
+			END,
+			updated_at = NOW(),
+			next_run_at = CASE
+				WHEN status = 'processing' AND attempts < max_retries THEN NOW()
+				ELSE next_run_at
+			END,
+			attempts = CASE
+				WHEN status = 'processing' AND attempts < max_retries THEN attempts + 1
+				ELSE attempts
+			END,
+			last_error = CASE
+				WHEN status = 'processing' AND attempts < max_retries
+				THEN 'detected stuck task; resetting'
+				ELSE last_error
+			END
+		WHERE
+			attempts >= max_retries
+			OR (
+				status = 'processing'
+				AND attempts < max_retries
+				AND updated_at < NOW() - ($1 * INTERVAL '1 seconds')
+			);
+	`
+
 	res, err := q.db.ExecContext(ctx, query, timeout.Seconds())
 	if err != nil {
 		return 0, err
