@@ -31,6 +31,11 @@ func NewServeMux() *ServeMux {
 // pattern most closely matches the task type.
 func (mux *ServeMux) ProcessTask(ctx context.Context, task *Task) error {
 	h, pattern := mux.Handler(task)
+	if pattern == "" {
+		log.Printf("handler not found for task %s", task.Type)
+		return fmt.Errorf("handler not found for task %s", task.Type)
+	}
+
 	log.Printf("dispatching %s → %s", task.Type, pattern)
 
 	return h.ProcessTask(ctx, task)

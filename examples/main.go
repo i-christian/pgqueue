@@ -15,10 +15,24 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const TaskSendEmail = "task:send:email"
+const (
+	TaskSendEmail   = "task:send:email"
+	TaskCleanupBase = "task:cleanup:"
+	TaskReportBase  = "task:report:"
+)
 
 type EmailPayload struct {
 	Subject string `json:"subject"`
+}
+
+type CleanupPayload struct {
+	Resource string `json:"resource"`
+	DryRun   bool   `json:"dry_run"`
+}
+
+type ReportPayload struct {
+	ReportName string `json:"report_name"`
+	EmailTo    string `json:"email_to"`
 }
 
 func main() {
@@ -37,6 +51,31 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	queue.Enqueue(ctx,
+		"task:cleanup:expired-sessions",
+		CleanupPayload{
+			Resource: "sessions",
+			DryRun:   false,
+		},
+	)
+
+	queue.Enqueue(ctx,
+		"task:report:daily",
+		ReportPayload{
+			ReportName: "Daily Sales",
+			EmailTo:    "ops@example.com",
+		},
+	)
+
+	// task with no handler test
+	queue.Enqueue(ctx,
+		"task:unknown",
+		CleanupPayload{
+			Resource: "sessions",
+			DryRun:   false,
+		},
+	)
 
 	// High Priority Job
 	go func() {
@@ -78,7 +117,9 @@ func main() {
 	// Start Workers in a background gorutine
 	mux := pgqueue.NewServeMux()
 	mux.HandleFunc(TaskSendEmail, processEmailSendTask)
-	
+	mux.HandleFunc(TaskCleanupBase, cleanupHandler)
+	mux.HandleFunc(TaskReportBase, reportHandler)
+
 	go queue.StartConsumer(ctx, 3, mux)
 
 	go func() {
@@ -109,5 +150,53 @@ func processEmailSendTask(ctx context.Context, t *pgqueue.Task) error {
 		return fmt.Errorf("bad payload: %v", err)
 	}
 	log.Printf("Processing: %s (Attempts: %d)\n", p.Subject, t.Attempts)
+	return nil
+}
+
+func cleanupHandler(ctx context.Context, t *pgqueue.Task) error {
+	var p CleanupPayload
+	if err := json.Unmarshal(t.Payload, &p); err != nil {
+		return fmt.Errorf("cleanup: invalid payload: %w", err)
+	}
+
+	log.Printf(
+		"[CLEANUP] task=%s resource=%s dryRun=%v attempts=%d",
+		t.Type,
+		p.Resource,
+		p.DryRun,
+		t.Attempts,
+	)
+
+	// Simulate work
+	select {
+	case <-time.After(1 * time.Second):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	return nil
+}
+
+func reportHandler(ctx context.Context, t *pgqueue.Task) error {
+	var p ReportPayload
+	if err := json.Unmarshal(t.Payload, &p); err != nil {
+		return fmt.Errorf("report: invalid payload: %w", err)
+	}
+
+	log.Printf(
+		"[REPORT] task=%s report=%s sendTo=%s attempts=%d",
+		t.Type,
+		p.ReportName,
+		p.EmailTo,
+		t.Attempts,
+	)
+
+	// Simulate report generation
+	select {
+	case <-time.After(2 * time.Second):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	return nil
 }

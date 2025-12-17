@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -119,7 +119,11 @@ func (q *Queue) processOne(ctx context.Context, handler WorkerHandler) (bool, er
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		UPDATE tasks SET status = 'processing', updated_at = NOW() WHERE task_id = $1
+		UPDATE tasks
+			SET status = 'processing',
+			attempts = attempts + 1,
+			updated_at = NOW()
+		WHERE task_id = $1
 	`, task.ID)
 	if err != nil {
 		return false, err
@@ -178,14 +182,17 @@ func (q *Queue) handleFailure(ctx context.Context, task Task, jobErr error) {
 
 	// Exponential backoff with Jitter to prevent "Thundering Herd"
 	backoff := time.Duration(1<<newAttempts) * time.Second
-	jitter := time.Duration(rand.Int63n(int64(backoff / 2)))
+	jitter := rand.N(backoff)
 	totalWait := (backoff / 2) + jitter
 
-	q.db.ExecContext(ctx, `
+	_, err := q.db.ExecContext(ctx, `
 		UPDATE tasks
 			SET status = $5,
 			attempts = $1,
-			next_run_at = NOW() + $2,
+			next_run_at = NOW() + ($2 * INTERVAL '1 seconds'),
 			last_error = $3 
-		WHERE task_id = $4`, newAttempts, totalWait, jobErr.Error(), task.ID, TaskPending)
+		WHERE task_id = $4`, newAttempts, totalWait.Seconds(), jobErr.Error(), task.ID, TaskPending)
+	if err != nil {
+		log.Printf("an error occured %v\n", err)
+	}
 }

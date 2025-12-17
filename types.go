@@ -32,9 +32,9 @@ const (
 )
 
 type Queue struct {
-	db         *sql.DB
-	connString string
-	scheduler  *cron.Cron
+	db                *sql.DB
+	connString        string
+	scheduler         *cron.Cron
 }
 
 type Task struct {
