@@ -31,10 +31,22 @@ const (
 	LowPriority     Priority = 1
 )
 
+func (p Priority) String() string {
+	if p == HighPriority {
+		return "high"
+	} else if p == DefaultPriority {
+		return "default"
+	} else if p == LowPriority {
+		return "low"
+	} else {
+		return "unknown"
+	}
+}
+
 type Queue struct {
-	db                *sql.DB
-	connString        string
-	scheduler         *cron.Cron
+	db         *sql.DB
+	connString string
+	scheduler  *cron.Cron
 }
 
 type Task struct {
@@ -43,7 +55,7 @@ type Task struct {
 	Payload    json.RawMessage
 	Attempts   int
 	MaxRetries int
-	Priority   int
+	Priority   Priority
 	CreatedAt  time.Time
 }
 
@@ -61,6 +73,9 @@ type QueueStats struct {
 type WorkerHandler interface {
 	ProcessTask(context.Context, *Task) error
 }
+
+// Middleware wraps a WorkerHandler with extra behavior.
+type Middleware func(WorkerHandler) WorkerHandler
 
 // The HandlerFunc type is an adapter to allow the use of
 // ordinary functions as a Handler. If f is a function

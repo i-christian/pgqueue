@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     next_run_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     attempts INTEGER DEFAULT 0,
     last_error TEXT,
-    priority INTEGER NOT NULL DEFAULT 0,
+    priority INTEGER NOT NULL DEFAULT 3,
     max_retries INTEGER NOT NULL DEFAULT 5,
 
     deduplication_key TEXT UNIQUE

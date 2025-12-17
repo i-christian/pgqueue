@@ -116,6 +116,7 @@ func main() {
 
 	// Start Workers in a background gorutine
 	mux := pgqueue.NewServeMux()
+	mux.Use(pgqueue.LoggingMiddleware(log.Default()))
 	mux.HandleFunc(TaskSendEmail, processEmailSendTask)
 	mux.HandleFunc(TaskCleanupBase, cleanupHandler)
 	mux.HandleFunc(TaskReportBase, reportHandler)
@@ -149,7 +150,6 @@ func processEmailSendTask(ctx context.Context, t *pgqueue.Task) error {
 	if err := json.Unmarshal(t.Payload, &p); err != nil {
 		return fmt.Errorf("bad payload: %v", err)
 	}
-	log.Printf("Processing: %s (Attempts: %d)\n", p.Subject, t.Attempts)
 	return nil
 }
 
@@ -158,14 +158,6 @@ func cleanupHandler(ctx context.Context, t *pgqueue.Task) error {
 	if err := json.Unmarshal(t.Payload, &p); err != nil {
 		return fmt.Errorf("cleanup: invalid payload: %w", err)
 	}
-
-	log.Printf(
-		"[CLEANUP] task=%s resource=%s dryRun=%v attempts=%d",
-		t.Type,
-		p.Resource,
-		p.DryRun,
-		t.Attempts,
-	)
 
 	// Simulate work
 	select {
@@ -182,14 +174,6 @@ func reportHandler(ctx context.Context, t *pgqueue.Task) error {
 	if err := json.Unmarshal(t.Payload, &p); err != nil {
 		return fmt.Errorf("report: invalid payload: %w", err)
 	}
-
-	log.Printf(
-		"[REPORT] task=%s report=%s sendTo=%s attempts=%d",
-		t.Type,
-		p.ReportName,
-		p.EmailTo,
-		t.Attempts,
-	)
 
 	// Simulate report generation
 	select {

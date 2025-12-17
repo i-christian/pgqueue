@@ -12,9 +12,10 @@ import (
 // ServeMux is a multiplexer for tasks which matches the type of each task against a list of registered patterns
 // and calls the workerhandler for the pattern that most closely matches the task's type.
 type ServeMux struct {
-	mu sync.RWMutex
-	m  map[string]muxEntry
-	es []muxEntry
+	mu          sync.RWMutex
+	m           map[string]muxEntry
+	es          []muxEntry
+	middlewares []Middleware
 }
 
 type muxEntry struct {
@@ -24,19 +25,22 @@ type muxEntry struct {
 
 // NewServeMux allocates and returns a new ServeMux.
 func NewServeMux() *ServeMux {
-	return new(ServeMux)
+	mux := &ServeMux{
+		m: make(map[string]muxEntry),
+	}
+
+	mux.Use(recoverMiddleware())
+	return mux
 }
 
 // ProcessTask dispatches the task to the handler whose
 // pattern most closely matches the task type.
 func (mux *ServeMux) ProcessTask(ctx context.Context, task *Task) error {
-	h, pattern := mux.Handler(task)
+	h, pattern := mux.handler(task)
 	if pattern == "" {
-		log.Printf("handler not found for task %s", task.Type)
+		log.Printf("[WARN] handler not found for task %s", task.Type)
 		return fmt.Errorf("handler not found for task %s", task.Type)
 	}
-
-	log.Printf("dispatching %s → %s", task.Type, pattern)
 
 	return h.ProcessTask(ctx, task)
 }
@@ -48,7 +52,7 @@ func (mux *ServeMux) ProcessTask(ctx context.Context, task *Task) error {
 //
 // If there is no registered handler that applies to the task,
 // handler returns a 'not found' handler which returns an error.
-func (mux *ServeMux) Handler(t *Task) (h WorkerHandler, pattern string) {
+func (mux *ServeMux) handler(t *Task) (h WorkerHandler, pattern string) {
 	mux.mu.RLock()
 	defer mux.mu.RUnlock()
 
@@ -56,6 +60,11 @@ func (mux *ServeMux) Handler(t *Task) (h WorkerHandler, pattern string) {
 	if h == nil {
 		h, pattern = NotFoundHandler(), ""
 	}
+
+	for i := len(mux.middlewares) - 1; i >= 0; i-- {
+		h = mux.middlewares[i](h)
+	}
+
 	return h, pattern
 }
 
@@ -77,7 +86,7 @@ func (mux *ServeMux) match(typename string) (h WorkerHandler, pattern string) {
 
 // Handle registers the handler for the given pattern.
 // If a handler already exists for pattern, Handle panics.
-func (mux *ServeMux) Handle(pattern string, handler WorkerHandler) {
+func (mux *ServeMux) handle(pattern string, handler WorkerHandler) {
 	mux.mu.Lock()
 	defer mux.mu.Unlock()
 
@@ -119,13 +128,21 @@ func (mux *ServeMux) HandleFunc(pattern string, handler func(context.Context, *T
 	if handler == nil {
 		panic("pgqueue: nil handler")
 	}
-	mux.Handle(pattern, HandlerFunc(handler))
+	mux.handle(pattern, HandlerFunc(handler))
 }
 
-// NotFound returns an error indicating that the handler was not found for the given task.
-func NotFound(ctx context.Context, task *Task) error {
+// Use appends middleware to the mux.
+// Middleware runs in the order it is added.
+func (mux *ServeMux) Use(mw ...Middleware) {
+	mux.mu.Lock()
+	defer mux.mu.Unlock()
+	mux.middlewares = append(mux.middlewares, mw...)
+}
+
+// notFound returns an error indicating that the handler was not found for the given task.
+func notFound(ctx context.Context, task *Task) error {
 	return fmt.Errorf("%w %q", ErrHandlerNotFound, string(task.Type))
 }
 
 // NotFoundHandler returns a simple task handler that returns a “not found“ error.
-func NotFoundHandler() WorkerHandler { return HandlerFunc(NotFound) }
+func NotFoundHandler() WorkerHandler { return HandlerFunc(notFound) }

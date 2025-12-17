@@ -47,7 +47,7 @@ func (q *Queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ..
 	cfg := enqueueConfig{
 		processAt:  nil,
 		dedupKey:   nil,
-		priority:   0,
+		priority:   DefaultPriority,
 		maxRetries: 5,
 	}
 	for _, opt := range opts {
@@ -59,10 +59,10 @@ func (q *Queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ..
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	query := `INSERT INTO tasks (task_type, payload, next_run_at, deduplication_key) VALUES ($1, $2, $3, $4)`
+	query := `INSERT INTO tasks (task_type, priority, payload, next_run_at, deduplication_key) VALUES ($1, $2, $3, $4, $5)`
 
 	var args []any
-	args = append(args, task, payloadBytes)
+	args = append(args, task, cfg.priority, payloadBytes)
 
 	var nextRunAt sql.NullTime
 	if cfg.processAt != nil {

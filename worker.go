@@ -3,7 +3,6 @@ package pgqueue
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log"
 	"math/rand/v2"
 	"sync"
@@ -135,16 +134,7 @@ func (q *Queue) processOne(ctx context.Context, handler WorkerHandler) (bool, er
 
 	task.Payload = payloadBytes
 
-	runTask := func() (runErr error) {
-		defer func() {
-			if r := recover(); r != nil {
-				runErr = fmt.Errorf("PANIC: %v", r)
-			}
-		}()
-		return handler.ProcessTask(ctx, &task)
-	}
-
-	jobErr := runTask()
+	jobErr := handler.ProcessTask(ctx, &task)
 
 	if jobErr != nil {
 		q.handleFailure(ctx, task, jobErr)
