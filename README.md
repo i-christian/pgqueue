@@ -48,6 +48,53 @@ PostgreSQL is already:
 
 ---
 
+## Architecture Overview
+This diagram shows how producers, PostgreSQL, workers, and cron jobs interact inside **pgqueue**.
+```mermaid
+flowchart LR
+    %% Nodes
+    P["Producers<br/>queue.Enqueue()"]
+    C["Cron Scheduler<br/>ScheduleCron()"]
+
+    T["PostgreSQL<br/>tasks table"]
+    A["tasks_archive"]
+    N["LISTEN / NOTIFY"]
+
+    W["Worker Pool<br/>StartConsumer(n)"]
+    M["ServeMux"]
+    H["Task Handlers"]
+    R["Retry & Rescue"]
+    S["Metrics / Stats"]
+
+    %% Flows
+    P --> T
+    C --> T
+    T --> N
+    N --> W
+    W --> M
+    M --> H
+    H -->|success| T
+    H -->|failure| R
+    R --> T
+    T --> A
+    W --> S
+
+    %% Styles
+    classDef producer fill:#E3F2FD,stroke:#1565C0,stroke-width:2px;
+    classDef postgres fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px;
+    classDef worker fill:#FFF8E1,stroke:#EF6C00,stroke-width:2px;
+    classDef handler fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px;
+    classDef metrics fill:#ECEFF1,stroke:#455A64,stroke-width:2px;
+
+    class P,C producer;
+    class T,A,N postgres;
+    class W,M,R worker;
+    class H handler;
+    class S metrics;  
+```
+
+---
+
 ## Installation
 
 ```bash
