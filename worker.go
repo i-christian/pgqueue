@@ -192,21 +192,30 @@ func (q *queue) handleFailure(ctx context.Context, task Task, jobErr error) {
 }
 
 func (q *queue) Shutdown(ctx context.Context) error {
-	log.Println("pgqueue: shutting down...")
+	q.logger.Info("pgqueue: shutting down")
 
 	q.cancel()
 
-	q.scheduler.Stop()
+	var cronDone <-chan struct{}
+	if q.scheduler != nil {
+		cronCtx := q.scheduler.Stop()
+		cronDone = cronCtx.Done()
+	} else {
+		closed := make(chan struct{})
+		close(closed)
+		cronDone = closed
+	}
 
-	done := make(chan struct{})
+	workersDone := make(chan struct{})
 	go func() {
 		q.wg.Wait()
-		close(done)
+		close(workersDone)
 	}()
 
 	select {
-	case <-done:
-		log.Println("pgqueue: shutdown complete")
+	case <-workersDone:
+		<-cronDone
+		q.logger.Info("pgqueue: shutdown complete")
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
