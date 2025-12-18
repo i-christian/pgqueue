@@ -25,7 +25,7 @@ var schemaSQL string
 //   - slog.logger pointer.
 //
 // The parameter opts is optional, defaults will be used if opts is set to nil
-func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueOption) (*queue, *Metrics, error) {
+func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueOption) (*Queue, *Metrics, error) {
 	cfg := defaultQueueConfig()
 	for _, opt := range opts {
 		opt(&cfg)
@@ -41,7 +41,7 @@ func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueO
 		scheduler.Start()
 	}
 
-	q := &queue{
+	q := &Queue{
 		db:         db,
 		connString: connString,
 		logger:     logger,
@@ -64,7 +64,7 @@ func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueO
 	return q, NewMetrics(), nil
 }
 
-func (q *queue) migrate(ctx context.Context) error {
+func (q *Queue) migrate(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, schemaSQL)
 	return err
 }
@@ -77,7 +77,7 @@ func (q *queue) migrate(ctx context.Context) error {
 // By default, max retry is set to 5 and priority is set to DefaultPriority.
 //
 // If no WithDelay option is provided, the task will be pending immediately.
-func (q *queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ...EnqueueOption) error {
+func (q *Queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ...EnqueueOption) error {
 	cfg := enqueueConfig{
 		processAt:  nil,
 		dedupKey:   nil,

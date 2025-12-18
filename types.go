@@ -46,7 +46,7 @@ func (p Priority) String() string {
 	}
 }
 
-type queue struct {
+type Queue struct {
 	db         *sql.DB
 	connString string
 	scheduler  *cron.Cron

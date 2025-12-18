@@ -10,7 +10,7 @@ import (
 )
 
 // ScheduleCron registers a recurring job.
-func (q *queue) ScheduleCron(
+func (q *Queue) ScheduleCron(
 	spec string,
 	jobName string,
 	task TaskType,
@@ -39,7 +39,7 @@ func (q *queue) ScheduleCron(
 }
 
 // ListCronJobs returns a list of scheduled tasks
-func (q *queue) ListCronJobs() ([]CronJobInfo, error) {
+func (q *Queue) ListCronJobs() ([]CronJobInfo, error) {
 	if q.scheduler == nil {
 		return nil, errors.New("cron is disabled")
 	}
@@ -59,7 +59,7 @@ func (q *queue) ListCronJobs() ([]CronJobInfo, error) {
 }
 
 // RemoveCron removes a scheduled task from cron
-func (q *queue) RemoveCron(id CronID) error {
+func (q *Queue) RemoveCron(id CronID) error {
 	if q.scheduler == nil {
 		return errors.New("cron is disabled")
 	}
