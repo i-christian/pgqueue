@@ -8,7 +8,7 @@ import (
 )
 
 // ScheduleCron registers a recurring job.
-func (q *Queue) ScheduleCron(spec string, jobName string, task TaskType, payload any) error {
+func (q *queue) ScheduleCron(spec string, jobName string, task TaskType, payload any) error {
 	_, err := q.scheduler.AddFunc(spec, func() {
 		now := time.Now().Truncate(time.Minute)
 		dedupKey := fmt.Sprintf("%s:%s", jobName, now.Format(time.RFC3339))

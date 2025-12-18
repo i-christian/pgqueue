@@ -55,11 +55,11 @@ func main() {
 	)
 
 	queue, metrics, err := pgqueue.NewQueue(db, connStr, logger,
-		// Check every 1 min, consider stuck if running > 60 mins
-		pgqueue.WithRescueConfig(1*time.Minute, 60*time.Minute),
+		// Check every 15 min, consider stuck if running > 60 mins
+		pgqueue.WithRescueConfig(15*time.Minute, 60*time.Minute),
 
 		// Run hourly, Archive tasks older than 24 hours
-		pgqueue.WithCleanupConfig(20*time.Second, 1*time.Hour, pgqueue.ArchiveStrategy),
+		pgqueue.WithCleanupConfig(1*time.Hour, 24*time.Hour, pgqueue.ArchiveStrategy),
 	)
 	if err != nil {
 		log.Fatalf("Failed to init queue: %v", err)
@@ -70,25 +70,34 @@ func main() {
 
 	// ---- Enqueue some example jobs ----
 
-	queue.Enqueue(ctx,
+	err = queue.Enqueue(ctx,
 		"task:cleanup:expired-sessions",
 		CleanupPayload{Resource: "sessions"},
 	)
+	if err != nil {
+		log.Println(err)
+	}
 
-	queue.Enqueue(ctx,
+	err = queue.Enqueue(ctx,
 		"task:report:daily",
 		ReportPayload{
 			ReportName: "Daily Sales",
 			EmailTo:    "operations@example.com",
 		},
 	)
+	if err != nil {
+		log.Println(err)
+	}
 
 	go func() {
-		queue.Enqueue(ctx,
+		err := queue.Enqueue(ctx,
 			TaskSendEmail,
 			EmailPayload{Subject: "Welcome!"},
 			pgqueue.WithPriority(pgqueue.HighPriority),
 		)
+		if err != nil {
+			log.Println(err)
+		}
 	}()
 
 	// ---- Worker setup ----
@@ -100,7 +109,7 @@ func main() {
 
 	// Register handlers
 	mux.HandleFunc(TaskSendEmail, sendEmailHandler)
-	mux.HandleFunc(TaskCleanupBase, cleanupHandler) // prefix match
+	mux.HandleFunc(TaskCleanupBase, cleanupHandler)
 	mux.HandleFunc(TaskReportBase, reportHandler)
 
 	// Start workers

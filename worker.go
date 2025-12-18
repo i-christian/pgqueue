@@ -12,7 +12,7 @@ import (
 )
 
 // StartConsumer starts a worker pool
-func (q *Queue) StartConsumer(concurrency int, handler WorkerHandler) {
+func (q *queue) StartConsumer(concurrency int, handler WorkerHandler) {
 	listener := pq.NewListener(
 		q.connString,
 		10*time.Second,
@@ -61,7 +61,7 @@ func (q *Queue) StartConsumer(concurrency int, handler WorkerHandler) {
 	}()
 }
 
-func (q *Queue) workerLoop(ctx context.Context, _ int, handler WorkerHandler, wakeUp <-chan struct{}) {
+func (q *queue) workerLoop(ctx context.Context, _ int, handler WorkerHandler, wakeUp <-chan struct{}) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -77,7 +77,7 @@ func (q *Queue) workerLoop(ctx context.Context, _ int, handler WorkerHandler, wa
 	}
 }
 
-func (q *Queue) processBatch(ctx context.Context, handler WorkerHandler) {
+func (q *queue) processBatch(ctx context.Context, handler WorkerHandler) {
 	for {
 		if ctx.Err() != nil {
 			return
@@ -94,7 +94,7 @@ func (q *Queue) processBatch(ctx context.Context, handler WorkerHandler) {
 	}
 }
 
-func (q *Queue) processOne(ctx context.Context, handler WorkerHandler) (bool, error) {
+func (q *queue) processOne(ctx context.Context, handler WorkerHandler) (bool, error) {
 	tx, err := q.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -150,7 +150,7 @@ func (q *Queue) processOne(ctx context.Context, handler WorkerHandler) (bool, er
 }
 
 // markDone updates the task status to 'done'.
-func (q *Queue) markDone(ctx context.Context, id uuid.UUID) {
+func (q *queue) markDone(ctx context.Context, id uuid.UUID) {
 	_, err := q.db.ExecContext(ctx, `
 		UPDATE tasks 
 		SET status = $2, 
@@ -163,7 +163,7 @@ func (q *Queue) markDone(ctx context.Context, id uuid.UUID) {
 	}
 }
 
-func (q *Queue) handleFailure(ctx context.Context, task Task, jobErr error) {
+func (q *queue) handleFailure(ctx context.Context, task Task, jobErr error) {
 	newAttempts := task.Attempts + 1
 	if newAttempts >= task.MaxRetries {
 		q.db.ExecContext(ctx, `
@@ -191,7 +191,7 @@ func (q *Queue) handleFailure(ctx context.Context, task Task, jobErr error) {
 	}
 }
 
-func (q *Queue) Shutdown(ctx context.Context) error {
+func (q *queue) Shutdown(ctx context.Context) error {
 	log.Println("pgqueue: shutting down...")
 
 	q.cancel()

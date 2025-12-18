@@ -9,8 +9,8 @@
 It is designed to be **simple**, **safe**, and **easy to reason about**, using only PostgreSQL and standard SQL.
 
 > ⚠️ **Project status**
-> This is primarily a **learning project**, created to explore how background job queues work internally.
-> That said, pgqueue aims to follow solid, production-style patterns and is suitable for real-world experimentation and small-to-medium workloads.
+> This is primarily a **learning project**, which I have created to explore how background job queues work internally.
+> That aside, pgqueue aims to follow solid, production-style patterns and is suitable for real-world experimentation and small-to-medium workloads.
 
 ---
 
@@ -46,8 +46,6 @@ PostgreSQL is already:
 * Transactions for correctness
 * `LISTEN / NOTIFY` for fast wake-ups
 
-No extra infrastructure required.
-
 ---
 
 ## Installation
@@ -57,6 +55,28 @@ go get github.com/i-christian/pgqueue
 ```
 
 ---
+## Setup logging
+```go
+logger := slog.New(
+    slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+    }),
+)
+```
+
+## Initilise queue with options
+```go
+queue, metrics, err := pgqueue.NewQueue(
+    db,
+    dbConnStr,
+    logger,
+    pgqueue.WithRescueConfig(5*time.Minute, 30*time.Minute),
+		pgqueue.WithCleanupConfig(1*time.Hour, 24*time.Hour, pgqueue.ArchiveStrategy),
+    )
+if err != nil {
+    log.Fatalf("Failed to init queue: %v", err)
+
+```
 
 ## Enqueue a Job
 
@@ -95,7 +115,7 @@ Supported options include:
 
 ---
 
-## Start Workers (ServeMux + slog)
+## Start Workers (ServeMux)
 
 `pgqueue` uses a `ServeMux` to route tasks by type, similar to `http.ServeMux`.
 

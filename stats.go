@@ -2,7 +2,7 @@ package pgqueue
 
 import "context"
 
-func (q *Queue) Stats(ctx context.Context) (QueueStats, error) {
+func (q *queue) Stats(ctx context.Context) (QueueStats, error) {
 	rows, err := q.db.QueryContext(ctx, `
 		SELECT status, count(*) FROM tasks GROUP BY status
 	`)

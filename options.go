@@ -2,39 +2,6 @@ package pgqueue
 
 import "time"
 
-type enqueueConfig struct {
-	processAt  *time.Time
-	dedupKey   *string
-	priority   Priority
-	maxRetries int
-}
-
-// EnqueueOption allows configuring options like delays or deduplication
-type EnqueueOption func(*enqueueConfig)
-
-type CleanupStrategy int
-
-const (
-	// DeleteStrategy hard deletes old tasks.
-	DeleteStrategy CleanupStrategy = iota
-	// ArchiveStrategy moves old tasks to the tasks_archive table.
-	ArchiveStrategy
-)
-
-type queueConfig struct {
-	rescueEnabled    bool
-	rescueInterval   time.Duration
-	rescueVisibility time.Duration
-
-	cleanupEnabled   bool
-	cleanupStrategy  CleanupStrategy
-	cleanupInterval  time.Duration
-	cleanupRetention time.Duration
-}
-
-// QueueOption is a function that modifies the queue configuration.
-type QueueOption func(*queueConfig)
-
 // WithRescueConfig configures the automatic stuck task rescue.
 //
 // params:
@@ -67,8 +34,8 @@ func WithCleanupConfig(interval, retention time.Duration, strategy CleanupStrate
 func defaultQueueConfig() queueConfig {
 	return queueConfig{
 		rescueEnabled:    true,
-		rescueInterval:   1 * time.Minute,
-		rescueVisibility: 10 * time.Minute,
+		rescueInterval:   5 * time.Minute,
+		rescueVisibility: 20 * time.Minute,
 
 		cleanupEnabled:   false,
 		cleanupInterval:  1 * time.Hour,
@@ -77,7 +44,7 @@ func defaultQueueConfig() queueConfig {
 	}
 }
 
-// WithPriority sets the priority (e.g., 10 for Critical, 0 for Default)
+// WithPriority sets the priority
 func WithPriority(p Priority) EnqueueOption {
 	return func(c *enqueueConfig) {
 		c.priority = p

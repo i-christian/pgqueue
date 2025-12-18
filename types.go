@@ -46,7 +46,7 @@ func (p Priority) String() string {
 	}
 }
 
-type Queue struct {
+type queue struct {
 	db         *sql.DB
 	connString string
 	scheduler  *cron.Cron
@@ -57,6 +57,39 @@ type Queue struct {
 	wg     sync.WaitGroup
 	config queueConfig
 }
+
+type enqueueConfig struct {
+	processAt  *time.Time
+	dedupKey   *string
+	priority   Priority
+	maxRetries int
+}
+
+// EnqueueOption allows configuring options like delays or deduplication
+type EnqueueOption func(*enqueueConfig)
+
+type CleanupStrategy int
+
+const (
+	// DeleteStrategy hard deletes old tasks.
+	DeleteStrategy CleanupStrategy = iota
+	// ArchiveStrategy moves old tasks to the tasks_archive table.
+	ArchiveStrategy
+)
+
+type queueConfig struct {
+	rescueEnabled    bool
+	rescueInterval   time.Duration
+	rescueVisibility time.Duration
+
+	cleanupEnabled   bool
+	cleanupStrategy  CleanupStrategy
+	cleanupInterval  time.Duration
+	cleanupRetention time.Duration
+}
+
+// QueueOption is a function that modifies the queue configuration.
+type QueueOption func(*queueConfig)
 
 type Task struct {
 	ID         uuid.UUID

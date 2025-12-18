@@ -7,7 +7,7 @@ import (
 )
 
 // runMaintenanceLoop handles all background system jobs
-func (q *Queue) runMaintenanceLoop() {
+func (q *queue) runMaintenanceLoop() {
 	defer q.wg.Done()
 
 	var rescueTicker *time.Ticker
@@ -61,7 +61,7 @@ func (q *Queue) runMaintenanceLoop() {
 
 // rescueStuckTasks finds tasks that have been 'processing' for too long
 // and resets them to 'pending', or marks them failed if retries are exhausted.
-func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration) (int64, error) {
+func (q *queue) rescueStuckTasks(ctx context.Context, timeout time.Duration) (int64, error) {
 	query := `
 		UPDATE tasks
 		SET
@@ -102,7 +102,7 @@ func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration) (in
 }
 
 // runCleanup executes the cleanup strategy defined in configuration
-func (q *Queue) runCleanup(ctx context.Context) error {
+func (q *queue) runCleanup(ctx context.Context) error {
 	retentionSeconds := q.config.cleanupRetention.Seconds()
 
 	if q.config.cleanupStrategy == DeleteStrategy {

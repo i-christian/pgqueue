@@ -19,8 +19,13 @@ import (
 //go:embed migrations/*
 var schemaSQL string
 
-// NewQueue initializes the queue, runs migrations, and starts internal maintenance.
-func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueOption) (*Queue, *Metrics, error) {
+// NewQueue returns a Queue and a Metric instance given:
+//   - a postgres connection,
+//   - connection string,
+//   - slog.logger pointer.
+//
+// The parameter opts is optional, defaults will be used if opts is set to nil
+func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueOption) (*queue, *Metrics, error) {
 	cfg := defaultQueueConfig()
 	for _, opt := range opts {
 		opt(&cfg)
@@ -28,7 +33,7 @@ func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueO
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	q := &Queue{
+	q := &queue{
 		db:         db,
 		connString: connString,
 		logger:     logger,
@@ -53,13 +58,20 @@ func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueO
 	return q, NewMetrics(), nil
 }
 
-func (q *Queue) migrate(ctx context.Context) error {
+func (q *queue) migrate(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, schemaSQL)
 	return err
 }
 
-// Enqueue adds a job to the queue
-func (q *Queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ...EnqueueOption) error {
+// Enqueue adds a task to the queue
+//
+// Enqueue returns nil error if the task is enqueued successfully, otherwise returns a non-nil error.
+//
+// The argument opts specifies the behavior of task processing.
+// By default, max retry is set to 5 and priority is set to DefaultPriority.
+//
+// If no WithDelay option is provided, the task will be pending immediately.
+func (q *queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ...EnqueueOption) error {
 	cfg := enqueueConfig{
 		processAt:  nil,
 		dedupKey:   nil,
