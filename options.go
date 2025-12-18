@@ -30,9 +30,20 @@ func WithCleanupConfig(interval, retention time.Duration, strategy CleanupStrate
 	}
 }
 
+// WithCronEnabled enables cron jobs functionality.
+//
+// Cron jobs are disabled by default.
+func WithCronEnabled() QueueOption {
+	return func(c *queueConfig) {
+		c.cronEnabled = true
+	}
+}
+
 // defaultQueueConfig provides sensible defaults.
 func defaultQueueConfig() queueConfig {
 	return queueConfig{
+		cronEnabled: false,
+
 		rescueEnabled:    true,
 		rescueInterval:   5 * time.Minute,
 		rescueVisibility: 20 * time.Minute,

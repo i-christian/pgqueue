@@ -23,7 +23,7 @@ func (q *queue) runMaintenanceLoop() {
 
 	if q.config.cleanupEnabled {
 		cleanupTicker = time.NewTicker(q.config.cleanupInterval)
-		q.logger.Info("Internal Cleanup started", "strategy", q.config.cleanupStrategy)
+		q.logger.Info("Internal Cleanup started", "strategy", q.config.cleanupStrategy.String())
 	} else {
 		cleanupTicker = time.NewTicker(24 * time.Hour)
 		cleanupTicker.Stop()

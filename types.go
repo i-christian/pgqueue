@@ -77,7 +77,20 @@ const (
 	ArchiveStrategy
 )
 
+func (c CleanupStrategy) String() string {
+	switch c {
+	case DeleteStrategy:
+		return "Delete old tasks"
+	case ArchiveStrategy:
+		return "Archive old tasks"
+	default:
+		return "unknown"
+	}
+}
+
 type queueConfig struct {
+	cronEnabled bool
+
 	rescueEnabled    bool
 	rescueInterval   time.Duration
 	rescueVisibility time.Duration
@@ -108,6 +121,15 @@ type QueueStats struct {
 	Done       int
 	Total      int
 }
+
+type (
+	CronID      int
+	CronJobInfo struct {
+		ID      CronID
+		NextRun time.Time
+		PrevRun time.Time
+	}
+)
 
 // WorkerHandler processes tasks.
 //

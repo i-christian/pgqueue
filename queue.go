@@ -33,11 +33,19 @@ func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueO
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	var scheduler *cron.Cron
+	if cfg.cronEnabled {
+		scheduler = cron.New(
+			cron.WithChain(cron.Recover(cron.DefaultLogger)),
+		)
+		scheduler.Start()
+	}
+
 	q := &queue{
 		db:         db,
 		connString: connString,
 		logger:     logger,
-		scheduler:  cron.New(cron.WithChain(cron.Recover(cron.DefaultLogger))),
+		scheduler:  scheduler,
 		ctx:        ctx,
 		cancel:     cancel,
 		config:     cfg,
@@ -49,8 +57,6 @@ func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueO
 		cancel()
 		return nil, nil, err
 	}
-
-	q.scheduler.Start()
 
 	q.wg.Add(1)
 	go q.runMaintenanceLoop()

@@ -72,7 +72,9 @@ queue, metrics, err := pgqueue.NewQueue(
     logger,
     pgqueue.WithRescueConfig(5*time.Minute, 30*time.Minute),
 		pgqueue.WithCleanupConfig(1*time.Hour, 24*time.Hour, pgqueue.ArchiveStrategy),
-    )
+    // Enables cron job scheduling, 
+		pgqueue.WithCronEnabled(),
+  )
 if err != nil {
     log.Fatalf("Failed to init queue: %v", err)
 
@@ -173,12 +175,27 @@ Use task **categories**, not per-entity identifiers.
 Run scheduled jobs **once**, even when multiple workers or servers are running.
 
 ```go
-queue.ScheduleCron(
-    "0 * * * *",
-    "hourly-report",
-    "task:report:hourly",
-    ReportPayload{ReportName: "Hourly"},
+cronID, err := queue.ScheduleCron(
+	"0 * * * *",
+	"hourly-report",
+	TaskReportBase+"hourly",
+	ReportPayload{ReportName: "Hourly"},
 )
+if err != nil {
+	log.Fatal(err)
+}
+
+jobs, _ := queue.ListCronJobs()
+for _, job := range jobs {
+	fmt.Printf(
+		"Cron %d → next: %s\n",
+		job.ID,
+		job.NextRun.Format(time.DateTime),
+	)
+}
+
+// Optional cleanup
+queue.RemoveCron(cronID)
 ```
 
 ---

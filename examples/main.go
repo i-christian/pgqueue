@@ -60,6 +60,8 @@ func main() {
 
 		// Run hourly, Archive tasks older than 24 hours
 		pgqueue.WithCleanupConfig(1*time.Hour, 24*time.Hour, pgqueue.ArchiveStrategy),
+		// Enables cron job scheduling,
+		pgqueue.WithCronEnabled(),
 	)
 	if err != nil {
 		log.Fatalf("Failed to init queue: %v", err)
@@ -118,9 +120,25 @@ func main() {
 	// Register Cron Jobs
 	// "0 * * * * " means every hour on the hour.
 	// "* * * * *" means every minute
-	err = queue.ScheduleCron("* * * * *", "cleanup_report", TaskSendEmail, EmailPayload{Subject: "Minute Report"})
+	cronID, err := queue.ScheduleCron(
+		"0 * * * *",
+		"hourly-report",
+		TaskReportBase+"hourly",
+		ReportPayload{ReportName: "Hourly"},
+	)
 	if err != nil {
-		log.Fatalf("Failed to schedule cron: %v", err)
+		log.Printf("failed to schedule cron job with error: %v\n", err)
+	} else {
+		log.Println("cron task scheduled successfully, id", cronID)
+	}
+
+	jobs, _ := queue.ListCronJobs()
+	for _, job := range jobs {
+		fmt.Printf(
+			"Cron %d → next: %s\n",
+			job.ID,
+			job.NextRun.Format(time.DateTime),
+		)
 	}
 
 	// Monitor Stats Loop
