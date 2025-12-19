@@ -16,11 +16,11 @@ func (c *Client) ScheduleCron(
 	task TaskType,
 	payload any,
 ) (CronID, error) {
-	if c.Queue.scheduler == nil {
+	if c.queue.scheduler == nil {
 		return 0, errors.New("cron is disabled")
 	}
 
-	id, err := c.Queue.scheduler.AddFunc(spec, func() {
+	id, err := c.queue.scheduler.AddFunc(spec, func() {
 		now := time.Now().Truncate(time.Minute)
 		dedupKey := fmt.Sprintf("%s:%s", jobName, now.Format(time.RFC3339))
 
@@ -40,11 +40,11 @@ func (c *Client) ScheduleCron(
 
 // ListCronJobs returns a list of scheduled tasks
 func (c *Client) ListCronJobs() ([]CronJobInfo, error) {
-	if c.Queue.scheduler == nil {
+	if c.queue.scheduler == nil {
 		return nil, errors.New("cron is disabled")
 	}
 
-	entries := c.Queue.scheduler.Entries()
+	entries := c.queue.scheduler.Entries()
 	jobs := make([]CronJobInfo, 0, len(entries))
 
 	for _, e := range entries {
@@ -60,10 +60,10 @@ func (c *Client) ListCronJobs() ([]CronJobInfo, error) {
 
 // RemoveCron removes a scheduled task from cron
 func (c *Client) RemoveCron(id CronID) error {
-	if c.Queue.scheduler == nil {
+	if c.queue.scheduler == nil {
 		return errors.New("cron is disabled")
 	}
 
-	c.Queue.scheduler.Remove(cron.EntryID(id))
+	c.queue.scheduler.Remove(cron.EntryID(id))
 	return nil
 }
