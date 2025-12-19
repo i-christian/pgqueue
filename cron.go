@@ -10,25 +10,25 @@ import (
 )
 
 // ScheduleCron registers a recurring job.
-func (q *Queue) ScheduleCron(
+func (c *Client) ScheduleCron(
 	spec string,
 	jobName string,
 	task TaskType,
 	payload any,
 ) (CronID, error) {
-	if q.scheduler == nil {
+	if c.Queue.scheduler == nil {
 		return 0, errors.New("cron is disabled")
 	}
 
-	id, err := q.scheduler.AddFunc(spec, func() {
+	id, err := c.Queue.scheduler.AddFunc(spec, func() {
 		now := time.Now().Truncate(time.Minute)
 		dedupKey := fmt.Sprintf("%s:%s", jobName, now.Format(time.RFC3339))
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if err := q.Enqueue(ctx, task, payload, WithDedup(dedupKey)); err != nil {
-			q.logger.Error("cron enqueue error:", "job", jobName, "error", err)
+		if err := c.Enqueue(ctx, task, payload, WithDedup(dedupKey)); err != nil {
+			c.Logger.Error("cron enqueue error:", "job", jobName, "error", err)
 		}
 	})
 	if err != nil {
@@ -39,12 +39,12 @@ func (q *Queue) ScheduleCron(
 }
 
 // ListCronJobs returns a list of scheduled tasks
-func (q *Queue) ListCronJobs() ([]CronJobInfo, error) {
-	if q.scheduler == nil {
+func (c *Client) ListCronJobs() ([]CronJobInfo, error) {
+	if c.Queue.scheduler == nil {
 		return nil, errors.New("cron is disabled")
 	}
 
-	entries := q.scheduler.Entries()
+	entries := c.Queue.scheduler.Entries()
 	jobs := make([]CronJobInfo, 0, len(entries))
 
 	for _, e := range entries {
@@ -59,11 +59,11 @@ func (q *Queue) ListCronJobs() ([]CronJobInfo, error) {
 }
 
 // RemoveCron removes a scheduled task from cron
-func (q *Queue) RemoveCron(id CronID) error {
-	if q.scheduler == nil {
+func (c *Client) RemoveCron(id CronID) error {
+	if c.Queue.scheduler == nil {
 		return errors.New("cron is disabled")
 	}
 
-	q.scheduler.Remove(cron.EntryID(id))
+	c.Queue.scheduler.Remove(cron.EntryID(id))
 	return nil
 }

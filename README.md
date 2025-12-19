@@ -102,24 +102,13 @@ go get github.com/i-christian/pgqueue
 ```
 
 ---
-## Setup logging
+## Initilise queue's client with options
 ```go
-logger := slog.New(
-    slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-    }),
-)
-```
-
-## Initilise queue with options
-```go
-queue, metrics, err := pgqueue.NewQueue(
+client, err := pgqueue.NewClient(
     db,
-    dbConnStr,
-    logger,
     pgqueue.WithRescueConfig(5*time.Minute, 30*time.Minute),
 		pgqueue.WithCleanupConfig(1*time.Hour, 24*time.Hour, pgqueue.ArchiveStrategy),
-    // Enables cron job scheduling, 
+    // Enables cron job scheduling, which is disabled by default 
 		pgqueue.WithCronEnabled(),
   )
 if err != nil {
@@ -134,7 +123,7 @@ type EmailPayload struct {
     Subject string `json:"subject"`
 }
 
-queue.Enqueue(
+client.Enqueue(
     ctx,
     "task:send:email",
     EmailPayload{Subject: "Welcome!"},
@@ -144,7 +133,7 @@ queue.Enqueue(
 ### Enqueue with Options
 
 ```go
-queue.Enqueue(
+client.Enqueue(
     ctx,
     "task:send:email",
     payload,
@@ -172,7 +161,7 @@ Supported options include:
 mux := pgqueue.NewServeMux()
 
 // Middleware runs for every task
-mux.Use(pgqueue.SlogMiddleware(logger, metrics))
+mux.Use(pgqueue.SlogMiddleware(client.Logger, client.Metrics))
 
 // Exact match
 mux.HandleFunc("task:send:email", sendEmailHandler)
@@ -182,7 +171,7 @@ mux.HandleFunc("task:cleanup:", cleanupHandler)
 mux.HandleFunc("task:report:", reportHandler)
 
 // Start worker pool
-go queue.StartConsumer(3, mux)
+pgqueue.NewServer(client.Queue, db, connStr, 3, mux)
 ```
 
 ---
@@ -222,7 +211,7 @@ Use task **categories**, not per-entity identifiers.
 Run scheduled jobs **once**, even when multiple workers or servers are running.
 
 ```go
-cronID, err := queue.ScheduleCron(
+cronID, err := client.ScheduleCron(
 	"0 * * * *",
 	"hourly-report",
 	TaskReportBase+"hourly",
@@ -232,7 +221,7 @@ if err != nil {
 	log.Fatal(err)
 }
 
-jobs, _ := queue.ListCronJobs()
+jobs, _ := client.ListCronJobs()
 for _, job := range jobs {
 	fmt.Printf(
 		"Cron %d → next: %s\n",
@@ -242,7 +231,7 @@ for _, job := range jobs {
 }
 
 // Optional cleanup
-queue.RemoveCron(cronID)
+client.RemoveCron(cronID)
 ```
 
 ---
@@ -260,7 +249,7 @@ queue.RemoveCron(cronID)
 ## Queue Stats
 
 ```go
-stats, _ := queue.Stats(ctx)
+stats, _ := client.Stats(ctx)
 
 fmt.Printf(
     "Pending: %d | Processing: %d | Failed: %d | Done: %d\n",

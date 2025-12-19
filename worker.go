@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"log/slog"
 	"math/rand/v2"
 	"time"
 
@@ -11,10 +12,25 @@ import (
 	"github.com/lib/pq"
 )
 
-// StartConsumer starts a worker pool
-func (q *Queue) StartConsumer(concurrency int, handler WorkerHandler) {
+// NewServer starts the worker pool, by wrapping the task's consumer.
+//
+// It runs the tasks consumers in a separate gorutine
+func NewServer(queue *Queue, db *sql.DB, connString string, concurrency int, handler WorkerHandler) *Server {
+	srv := &Server{
+		connString:  connString,
+		db:          db,
+		queue:       queue,
+		concurrency: concurrency,
+	}
+
+	go srv.startConsumer(handler)
+	return srv
+}
+
+// startConsumer starts a worker pool
+func (s *Server) startConsumer(handler WorkerHandler) {
 	listener := pq.NewListener(
-		q.connString,
+		s.connString,
 		10*time.Second,
 		time.Minute,
 		func(ev pq.ListenerEventType, err error) {
@@ -25,7 +41,7 @@ func (q *Queue) StartConsumer(concurrency int, handler WorkerHandler) {
 	)
 
 	if err := listener.Listen("new_task"); err != nil {
-		q.logger.Error("Failed to listen ", "details", err)
+		slog.Error("Failed to listen ", "details", err)
 	}
 
 	wakeUp := make(chan struct{}, 1)
@@ -33,7 +49,7 @@ func (q *Queue) StartConsumer(concurrency int, handler WorkerHandler) {
 	go func() {
 		for {
 			select {
-			case <-q.ctx.Done():
+			case <-s.queue.ctx.Done():
 				return
 			case <-listener.Notify:
 				select {
@@ -44,24 +60,24 @@ func (q *Queue) StartConsumer(concurrency int, handler WorkerHandler) {
 		}
 	}()
 
-	log.Printf("Starting %d workers...", concurrency)
+	log.Printf("Starting %d workers...", s.concurrency)
 
-	for i := range concurrency {
-		q.wg.Add(1)
+	for i := range s.concurrency {
+		s.queue.wg.Add(1)
 		go func(id int) {
-			defer q.wg.Done()
-			q.workerLoop(q.ctx, id, handler, wakeUp)
+			defer s.queue.wg.Done()
+			s.workerLoop(s.queue.ctx, id, handler, wakeUp)
 		}(i)
 	}
 
 	go func() {
-		<-q.ctx.Done()
+		<-s.queue.ctx.Done()
 		log.Println("Stopping workers...")
 		listener.Close()
 	}()
 }
 
-func (q *Queue) workerLoop(ctx context.Context, _ int, handler WorkerHandler, wakeUp <-chan struct{}) {
+func (s *Server) workerLoop(ctx context.Context, _ int, handler WorkerHandler, wakeUp <-chan struct{}) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -70,19 +86,19 @@ func (q *Queue) workerLoop(ctx context.Context, _ int, handler WorkerHandler, wa
 		case <-ctx.Done():
 			return
 		case <-wakeUp:
-			q.processBatch(ctx, handler)
+			s.processBatch(ctx, handler)
 		case <-ticker.C:
-			q.processBatch(ctx, handler)
+			s.processBatch(ctx, handler)
 		}
 	}
 }
 
-func (q *Queue) processBatch(ctx context.Context, handler WorkerHandler) {
+func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) {
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		processed, err := q.processOne(ctx, handler)
+		processed, err := s.processOne(ctx, handler)
 		if err != nil {
 			log.Printf("Processing error: %v", err)
 			time.Sleep(1 * time.Second)
@@ -94,8 +110,8 @@ func (q *Queue) processBatch(ctx context.Context, handler WorkerHandler) {
 	}
 }
 
-func (q *Queue) processOne(ctx context.Context, handler WorkerHandler) (bool, error) {
-	tx, err := q.db.BeginTx(ctx, nil)
+func (s *Server) processOne(ctx context.Context, handler WorkerHandler) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
@@ -141,16 +157,16 @@ func (q *Queue) processOne(ctx context.Context, handler WorkerHandler) (bool, er
 	jobErr := handler.ProcessTask(ctx, &task)
 
 	if jobErr != nil {
-		q.handleFailure(ctx, task, jobErr)
+		s.handleFailure(ctx, task, jobErr)
 	} else {
-		q.markDone(ctx, task.ID)
+		s.markDone(ctx, task.ID)
 	}
 
 	return true, nil
 }
 
 // markDone updates the task status to 'done'.
-func (q *Queue) markDone(ctx context.Context, id uuid.UUID) {
+func (q *Server) markDone(ctx context.Context, id uuid.UUID) {
 	_, err := q.db.ExecContext(ctx, `
 		UPDATE tasks 
 		SET status = $2, 
@@ -163,7 +179,7 @@ func (q *Queue) markDone(ctx context.Context, id uuid.UUID) {
 	}
 }
 
-func (q *Queue) handleFailure(ctx context.Context, task Task, jobErr error) {
+func (q *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
 	newAttempts := task.Attempts + 1
 	if newAttempts >= task.MaxRetries {
 		q.db.ExecContext(ctx, `
@@ -188,36 +204,5 @@ func (q *Queue) handleFailure(ctx context.Context, task Task, jobErr error) {
 		WHERE task_id = $4`, newAttempts, totalWait.Seconds(), jobErr.Error(), task.ID, TaskPending)
 	if err != nil {
 		log.Printf("an error occured %v\n", err)
-	}
-}
-
-func (q *Queue) Shutdown(ctx context.Context) error {
-	q.logger.Info("pgqueue: shutting down")
-
-	q.cancel()
-
-	var cronDone <-chan struct{}
-	if q.scheduler != nil {
-		cronCtx := q.scheduler.Stop()
-		cronDone = cronCtx.Done()
-	} else {
-		closed := make(chan struct{})
-		close(closed)
-		cronDone = closed
-	}
-
-	workersDone := make(chan struct{})
-	go func() {
-		q.wg.Wait()
-		close(workersDone)
-	}()
-
-	select {
-	case <-workersDone:
-		<-cronDone
-		q.logger.Info("pgqueue: shutdown complete")
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 }

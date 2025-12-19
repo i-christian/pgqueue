@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/lib/pq"
@@ -19,19 +20,21 @@ import (
 //go:embed migrations/*
 var schemaSQL string
 
-// NewQueue returns a Queue and a Metric instance given:
-//   - a postgres connection,
-//   - connection string,
-//   - slog.logger pointer.
+// NewClient returns a Queue, a logger and a Metric instance given a postgres connection.
 //
 // The parameter opts is optional, defaults will be used if opts is set to nil
-func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueOption) (*Queue, *Metrics, error) {
+func NewClient(db *sql.DB, opts ...QueueOption) (client *Client, err error) {
 	cfg := defaultQueueConfig()
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	logger := slog.New(
+		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}),
+	)
 
 	var scheduler *cron.Cron
 	if cfg.cronEnabled {
@@ -42,30 +45,33 @@ func NewQueue(db *sql.DB, connString string, logger *slog.Logger, opts ...QueueO
 	}
 
 	q := &Queue{
-		db:         db,
-		connString: connString,
-		logger:     logger,
-		scheduler:  scheduler,
-		ctx:        ctx,
-		cancel:     cancel,
-		config:     cfg,
+		logger:    logger,
+		scheduler: scheduler,
+		ctx:       ctx,
+		cancel:    cancel,
+		config:    cfg,
 	}
 
 	migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer migrateCancel()
-	if err := q.migrate(migrateCtx); err != nil {
+	if err := migrate(migrateCtx, db); err != nil {
 		cancel()
-		return nil, nil, err
+		return nil, err
 	}
 
 	q.wg.Add(1)
-	go q.runMaintenanceLoop()
+	go q.runMaintenanceLoop(db)
 
-	return q, NewMetrics(), nil
+	return &Client{
+		db:      db,
+		Queue:   q,
+		Metrics: NewMetrics(),
+		Logger:  logger,
+	}, nil
 }
 
-func (q *Queue) migrate(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, schemaSQL)
+func migrate(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, schemaSQL)
 	return err
 }
 
@@ -77,7 +83,7 @@ func (q *Queue) migrate(ctx context.Context) error {
 // By default, max retry is set to 5 and priority is set to DefaultPriority.
 //
 // If no WithDelay option is provided, the task will be pending immediately.
-func (q *Queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ...EnqueueOption) error {
+func (q *Client) Enqueue(ctx context.Context, task TaskType, payload any, opts ...EnqueueOption) error {
 	cfg := enqueueConfig{
 		processAt:  nil,
 		dedupKey:   nil,
@@ -120,4 +126,35 @@ func (q *Queue) Enqueue(ctx context.Context, task TaskType, payload any, opts ..
 		return err
 	}
 	return nil
+}
+
+func (q *Queue) Shutdown(ctx context.Context) error {
+	q.logger.Info("pgqueue: shutting down")
+
+	q.cancel()
+
+	var cronDone <-chan struct{}
+	if q.scheduler != nil {
+		cronCtx := q.scheduler.Stop()
+		cronDone = cronCtx.Done()
+	} else {
+		closed := make(chan struct{})
+		close(closed)
+		cronDone = closed
+	}
+
+	workersDone := make(chan struct{})
+	go func() {
+		q.wg.Wait()
+		close(workersDone)
+	}()
+
+	select {
+	case <-workersDone:
+		<-cronDone
+		q.logger.Info("pgqueue: shutdown complete")
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

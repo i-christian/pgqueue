@@ -2,12 +2,13 @@ package pgqueue
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 )
 
 // runMaintenanceLoop handles all background system jobs
-func (q *Queue) runMaintenanceLoop() {
+func (q *Queue) runMaintenanceLoop(db *sql.DB) {
 	defer q.wg.Done()
 
 	var rescueTicker *time.Ticker
@@ -44,7 +45,7 @@ func (q *Queue) runMaintenanceLoop() {
 			return
 
 		case <-rescueTicker.C:
-			count, err := q.rescueStuckTasks(q.ctx, q.config.rescueVisibility)
+			count, err := q.rescueStuckTasks(q.ctx, q.config.rescueVisibility, db)
 			if err != nil {
 				q.logger.Error("Rescue failed", "error", err)
 			} else if count > 0 {
@@ -52,7 +53,7 @@ func (q *Queue) runMaintenanceLoop() {
 			}
 
 		case <-cleanupTicker.C:
-			if err := q.runCleanup(q.ctx); err != nil {
+			if err := q.runCleanup(q.ctx, db); err != nil {
 				q.logger.Error("Cleanup failed", "error", err)
 			}
 		}
@@ -61,7 +62,7 @@ func (q *Queue) runMaintenanceLoop() {
 
 // rescueStuckTasks finds tasks that have been 'processing' for too long
 // and resets them to 'pending', or marks them failed if retries are exhausted.
-func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration) (int64, error) {
+func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration, db *sql.DB) (int64, error) {
 	query := `
 		UPDATE tasks
 		SET
@@ -93,7 +94,7 @@ func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration) (in
 			);
 	`
 
-	res, err := q.db.ExecContext(ctx, query, timeout.Seconds())
+	res, err := db.ExecContext(ctx, query, timeout.Seconds())
 	if err != nil {
 		return 0, err
 	}
@@ -102,7 +103,7 @@ func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration) (in
 }
 
 // runCleanup executes the cleanup strategy defined in configuration
-func (q *Queue) runCleanup(ctx context.Context) error {
+func (q *Queue) runCleanup(ctx context.Context, db *sql.DB) error {
 	retentionSeconds := q.config.cleanupRetention.Seconds()
 
 	if q.config.cleanupStrategy == DeleteStrategy {
@@ -111,7 +112,7 @@ func (q *Queue) runCleanup(ctx context.Context) error {
 				WHERE status IN ('done', 'failed') 
 				AND updated_at < NOW() - ($1 * INTERVAL '1 seconds')
 		`
-		res, err := q.db.ExecContext(ctx, query, retentionSeconds)
+		res, err := db.ExecContext(ctx, query, retentionSeconds)
 		if err != nil {
 			return fmt.Errorf("failed to delete old tasks: %w", err)
 		}
@@ -132,7 +133,7 @@ func (q *Queue) runCleanup(ctx context.Context) error {
 		INSERT INTO tasks_archive 
 		SELECT * FROM moved_rows;
 	`
-	res, err := q.db.ExecContext(ctx, query, retentionSeconds)
+	res, err := db.ExecContext(ctx, query, retentionSeconds)
 	if err != nil {
 		return fmt.Errorf("failed to archive tasks: %w", err)
 	}

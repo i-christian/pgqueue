@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -47,14 +46,7 @@ func main() {
 	}
 	defer db.Close()
 
-	// Structured logger
-	logger := slog.New(
-		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}),
-	)
-
-	queue, metrics, err := pgqueue.NewQueue(db, connStr, logger,
+	client, err := pgqueue.NewClient(db,
 		// Check every 15 min, consider stuck if running > 60 mins
 		pgqueue.WithRescueConfig(15*time.Minute, 60*time.Minute),
 
@@ -72,7 +64,7 @@ func main() {
 
 	// ---- Enqueue some example jobs ----
 
-	err = queue.Enqueue(ctx,
+	err = client.Enqueue(ctx,
 		"task:cleanup:expired-sessions",
 		CleanupPayload{Resource: "sessions"},
 	)
@@ -80,7 +72,7 @@ func main() {
 		log.Println(err)
 	}
 
-	err = queue.Enqueue(ctx,
+	err = client.Enqueue(ctx,
 		"task:report:daily",
 		ReportPayload{
 			ReportName: "Daily Sales",
@@ -92,7 +84,7 @@ func main() {
 	}
 
 	go func() {
-		err := queue.Enqueue(ctx,
+		err := client.Enqueue(ctx,
 			TaskSendEmail,
 			EmailPayload{Subject: "Welcome!"},
 			pgqueue.WithPriority(pgqueue.HighPriority),
@@ -107,7 +99,7 @@ func main() {
 	mux := pgqueue.NewServeMux()
 
 	// Middleware runs for every task
-	mux.Use(pgqueue.SlogMiddleware(logger, metrics))
+	mux.Use(pgqueue.SlogMiddleware(client.Logger, client.Metrics))
 
 	// Register handlers
 	mux.HandleFunc(TaskSendEmail, sendEmailHandler)
@@ -115,12 +107,12 @@ func main() {
 	mux.HandleFunc(TaskReportBase, reportHandler)
 
 	// Start workers
-	go queue.StartConsumer(3, mux)
+	pgqueue.NewServer(client.Queue, db, connStr, 3, mux)
 
 	// Register Cron Jobs
 	// "0 * * * * " means every hour on the hour.
 	// "* * * * *" means every minute
-	cronID, err := queue.ScheduleCron(
+	cronID, err := client.ScheduleCron(
 		"0 * * * *",
 		"hourly-report",
 		TaskReportBase+"hourly",
@@ -132,7 +124,7 @@ func main() {
 		log.Println("cron task scheduled successfully, id", cronID)
 	}
 
-	jobs, _ := queue.ListCronJobs()
+	jobs, _ := client.ListCronJobs()
 	for _, job := range jobs {
 		fmt.Printf(
 			"Cron %d → next: %s\n",
@@ -145,7 +137,7 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
 		for range ticker.C {
-			stats, _ := queue.Stats(ctx)
+			stats, _ := client.Stats(ctx)
 			fmt.Printf("--- Queue Stats ---\nPending: %d | Processing: %d | Failed: %d | Success: %d\n",
 				stats.Pending, stats.Processing, stats.Failed, stats.Done)
 		}
@@ -160,7 +152,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := queue.Shutdown(shutdownCtx); err != nil {
+	if err := client.Queue.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Shutdown error: %v", err)
 	}
 }

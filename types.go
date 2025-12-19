@@ -47,15 +47,27 @@ func (p Priority) String() string {
 }
 
 type Queue struct {
-	db         *sql.DB
-	connString string
-	scheduler  *cron.Cron
-	logger     *slog.Logger
+	scheduler *cron.Cron
+	logger    *slog.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	config queueConfig
+}
+
+type Client struct {
+	db      *sql.DB
+	Queue   *Queue
+	Metrics *Metrics
+	Logger  *slog.Logger
+}
+
+type Server struct {
+	connString  string
+	db          *sql.DB
+	queue       *Queue
+	concurrency int
 }
 
 type enqueueConfig struct {
