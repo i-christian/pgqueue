@@ -1,3 +1,6 @@
+// Package pgqueue provides a lightweight, PostgreSQL-backed job queue for Go.
+//
+// It enables asynchronous background processing using PostgreSQL while offering safe concurrency, retries with backoff, delayed jobs, and cron scheduling.
 package pgqueue
 
 import (
@@ -7,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,28 +50,34 @@ func (p Priority) String() string {
 	}
 }
 
+type Client struct {
+	db      *sql.DB
+	queue   *Queue
+	Metrics *Metrics
+	Logger  *slog.Logger
+}
+
 type Queue struct {
 	scheduler *cron.Cron
 	logger    *slog.Logger
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
 	config queueConfig
-}
-
-type Client struct {
-	db      *sql.DB
-	Queue   *Queue
-	Metrics *Metrics
-	Logger  *slog.Logger
 }
 
 type Server struct {
 	connString  string
 	db          *sql.DB
-	queue       *Queue
+	handler     WorkerHandler
 	concurrency int
+
+	running      atomic.Bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	shutdownDone chan struct{}
 }
 
 type enqueueConfig struct {

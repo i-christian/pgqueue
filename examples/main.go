@@ -107,7 +107,13 @@ func main() {
 	mux.HandleFunc(TaskReportBase, reportHandler)
 
 	// Start workers
-	pgqueue.NewServer(client.Queue, db, connStr, 3, mux)
+	server := pgqueue.NewServer(db, connStr, 3, mux)
+
+	// This spins up goroutines and returns immediately.
+	if err := server.Start(); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Worker server started...")
 
 	// Register Cron Jobs
 	// "0 * * * * " means every hour on the hour.
@@ -144,7 +150,6 @@ func main() {
 	}()
 
 	// ---- Graceful shutdown ----
-
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
@@ -152,8 +157,14 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := client.Queue.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Shutdown error: %v", err)
+	// Shutdown Worker Server first (stop processing new tasks)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("pgqueue: Server shutdown error: %v", err)
+	}
+
+	// Close Client (stop cron/maintenance)
+	if err := client.Close(); err != nil {
+		log.Printf("pgqueue: client close error: %v", err)
 	}
 }
 

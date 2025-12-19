@@ -171,7 +171,12 @@ mux.HandleFunc("task:cleanup:", cleanupHandler)
 mux.HandleFunc("task:report:", reportHandler)
 
 // Start worker pool
-pgqueue.NewServer(client.Queue, db, connStr, 3, mux)
+server := pgqueue.NewServer(db, connStr, 3, mux)
+if err := server.Start(); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Worker server started...")
+
 ```
 
 ---
