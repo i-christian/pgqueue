@@ -88,6 +88,7 @@ func main() {
 			TaskSendEmail,
 			EmailPayload{Subject: "Welcome!"},
 			pgqueue.WithPriority(pgqueue.HighPriority),
+			pgqueue.WithMaxRetries(1),
 		)
 		if err != nil {
 			log.Println(err)

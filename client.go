@@ -85,10 +85,10 @@ func (c *Client) Enqueue(ctx context.Context, task TaskType, payload any, opts .
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	query := `INSERT INTO tasks (task_type, priority, payload, next_run_at, deduplication_key) VALUES ($1, $2, $3, $4, $5)`
+	query := `INSERT INTO tasks (task_type, priority, max_retries, payload, next_run_at, deduplication_key) VALUES ($1, $2, $3, $4, $5, $6)`
 
 	var args []any
-	args = append(args, task, cfg.priority, payloadBytes)
+	args = append(args, task, cfg.priority, cfg.maxRetries, payloadBytes)
 
 	nextRunAt := sql.NullTime{Time: time.Now(), Valid: true}
 	if cfg.processAt != nil {
