@@ -112,6 +112,10 @@ func (c *Client) Enqueue(ctx context.Context, task TaskType, payload any, opts .
 	return nil
 }
 
+func (c *Client) GetMetricSnapshot() MetricSnapshot {
+	return c.Metrics.Snapshot()
+}
+
 func (q *Queue) shutdown() error {
 	q.logger.Info("pgqueue: client shutting down")
 	q.cancel()

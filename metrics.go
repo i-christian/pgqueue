@@ -12,6 +12,11 @@ type PriorityMetrics struct {
 	Duration  time.Duration
 }
 
+// MetricSnapshot is a safe, exportable view of the metrics
+type MetricSnapshot struct {
+	Stats map[string]map[string]PriorityMetrics `json:"stats"`
+}
+
 type Metrics struct {
 	mu   sync.RWMutex
 	data map[Priority]map[TaskType]*PriorityMetrics
@@ -53,4 +58,24 @@ func (m *Metrics) RecordFailure(p Priority, t TaskType, d time.Duration) {
 	pm := m.get(p, t)
 	pm.Failed++
 	pm.Duration += d
+}
+
+// Snapshot returns a thread-safe copy of the current metrics
+func (m *Metrics) Snapshot() MetricSnapshot {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	snapshot := MetricSnapshot{
+		Stats: make(map[string]map[string]PriorityMetrics),
+	}
+
+	for priority, taskMap := range m.data {
+		pStr := priority.String()
+		snapshot.Stats[pStr] = make(map[string]PriorityMetrics)
+
+		for taskType, metrics := range taskMap {
+			snapshot.Stats[pStr][string(taskType)] = *metrics
+		}
+	}
+	return snapshot
 }
