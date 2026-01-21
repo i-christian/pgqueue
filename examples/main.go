@@ -152,6 +152,7 @@ func main() {
 	}()
 
 	// Start an introspection server
+	// ```curl localhost:8081/stats```
 	go func() {
 		mux := http.NewServeMux()
 
