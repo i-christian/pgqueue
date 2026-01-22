@@ -66,21 +66,31 @@ func (m model) fetchData() tea.Cmd {
 	}
 }
 
+// showTaskDetail fetches the full JSON payload and error string
+// for the selected task and prepares it for the viewport.
 func (m model) showTaskDetail() tea.Cmd {
 	return func() tea.Msg {
 		selected := m.taskTable.SelectedRow()
+
 		if len(selected) == 0 {
 			return nil
 		}
+
 		var p []byte
+
 		var e sql.NullString
+
 		_ = m.db.QueryRow("SELECT payload, last_error FROM tasks WHERE task_id::text LIKE $1", selected[0]+"%").Scan(&p, &e)
+
 		var pretty json.RawMessage = p
+
 		fmtP, _ := json.MarshalIndent(pretty, "", "  ")
+
 		return fmt.Sprintf("TASK: %s\nERROR: %s\n\nPAYLOAD:\n%s", selected[0], e.String, string(fmtP))
 	}
 }
 
+// retryTask resets a task to 'pending' and sets its next run time to NOW.
 func (m model) retryTask() tea.Cmd {
 	return func() tea.Msg {
 		sel := m.taskTable.SelectedRow()

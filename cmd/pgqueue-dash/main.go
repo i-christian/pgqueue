@@ -1,3 +1,6 @@
+// Package main provides the entry point for the pgqueue-dash TUI.
+// It handles CLI flag parsing, database connection pooling, and
+// program initialization.
 package main
 
 import (

@@ -8,10 +8,7 @@ import (
 
 var (
 	subtleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	prioStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	pageStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
 
 	headerStyle = lipgloss.NewStyle().
@@ -41,6 +38,7 @@ var (
 			Background(lipgloss.Color("234"))
 )
 
+// View renders the final string based on the current model state.
 func (m model) View() string {
 	statusText := successStyle.Render("CONNECTED")
 	topBar := lipgloss.JoinHorizontal(lipgloss.Center,
@@ -79,7 +77,27 @@ func (m model) View() string {
 	view := lipgloss.JoinVertical(lipgloss.Left, topBar, "\n", tabRow, "\n", content, statusLine)
 
 	if m.showDetail {
-		return lipgloss.Place(100, 40, lipgloss.Center, lipgloss.Center, popupStyle.Render(m.detailView.View()+"\n\n"+subtleStyle.Render("[ESC] Return")))
+		return m.renderDetailModal()
 	}
 	return view
+}
+
+// RenderDetailModal styles the viewport content.
+func (m model) renderDetailModal() string {
+	header := headerStyle.Render(fmt.Sprintf(" TASK DETAILS: %s ", m.taskTable.SelectedRow()[0]))
+
+	modalContent := lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		"\n",
+		m.detailView.View(),
+		"\n",
+		subtleStyle.Render(" [ESC] Close • [Up/Down] Scroll "),
+	)
+
+	return lipgloss.Place(
+		100, 40,
+		lipgloss.Center, lipgloss.Center,
+		popupStyle.Render(modalContent),
+	)
 }

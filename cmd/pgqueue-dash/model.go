@@ -22,6 +22,7 @@ const (
 	tabTasks
 )
 
+// model represents the total state of the dashboard.
 type model struct {
 	db            *sql.DB
 	activeTab     tab
@@ -40,6 +41,7 @@ type model struct {
 	totalTasks  int
 }
 
+// initialModel sets up the UI components with default dimensions and styling.
 func initialModel(db *sql.DB, interval time.Duration) model {
 	ot := table.New(table.WithColumns([]table.Column{
 		{Title: "Metric Group", Width: 25},
@@ -68,6 +70,7 @@ func initialModel(db *sql.DB, interval time.Duration) model {
 	}
 }
 
+// Init kicks off the first data fetch and the recurring tick timer.
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		tea.Tick(m.pollInterval, func(t time.Time) tea.Msg { return TickMsg(t) }),
@@ -75,6 +78,8 @@ func (m model) Init() tea.Cmd {
 	)
 }
 
+// Update handles all incoming messages (ticks, keys, data updates)
+// and returns the updated state and any side-effect commands.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
