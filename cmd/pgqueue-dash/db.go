@@ -61,10 +61,11 @@ func (m model) fetchData() tea.Cmd {
 		defer tRows.Close()
 		var tv []table.Row
 		for tRows.Next() {
-			var id, tType, status, errStr string
+			var id uuid.UUID
+			var tType, status, errStr string
 			var prio int
 			tRows.Scan(&id, &tType, &status, &prio, &errStr)
-			tv = append(tv, table.Row{id[:8], tType, status, fmt.Sprintf("%d", prio), errStr})
+			tv = append(tv, table.Row{id.String(), tType, status, fmt.Sprintf("%d", prio), errStr})
 		}
 
 		cOffset := m.cronPage * pageSize
@@ -92,7 +93,7 @@ func (m model) fetchData() tea.Cmd {
 					nStr = next.Time.Format(time.DateTime)
 				}
 
-				cv = append(cv, table.Row{jobID.String()[:8], name, expr, lStr, nStr})
+				cv = append(cv, table.Row{jobID.String(), name, expr, lStr, nStr})
 			}
 		}
 
@@ -109,9 +110,11 @@ func (m model) showTaskDetail() tea.Cmd {
 			return nil
 		}
 
+		fullID := selected[0]
+
 		var payload []byte
 		var lastErr sql.NullString
-		err := m.db.QueryRow("SELECT payload, last_error FROM tasks WHERE task_id::text LIKE $1", selected[0]+"%").Scan(&payload, &lastErr)
+		err := m.db.QueryRow("SELECT payload, last_error FROM tasks WHERE task_id = $1", fullID).Scan(&payload, &lastErr)
 		if err != nil {
 			return fmt.Sprintf("Error fetching details: %v", err)
 		}
@@ -121,12 +124,11 @@ func (m model) showTaskDetail() tea.Cmd {
 
 		label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62"))
 		valStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 
 		return fmt.Sprintf(
 			"%s %s\n\n%s\n%s\n\n%s\n%s",
-			label.Render("TASK ID:"), valStyle.Render(selected[0]),
-			label.Render("LAST RECORDED ERROR:"), errStyle.Render(lastErr.String),
+			label.Render("FULL TASK UUID:"), valStyle.Render(fullID),
+			label.Render("LAST RECORDED ERROR:"), lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(lastErr.String),
 			label.Render("DATA PAYLOAD:"), valStyle.Render(string(prettyJSON)),
 		)
 	}

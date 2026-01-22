@@ -54,7 +54,7 @@ func initialModel(db *sql.DB, interval time.Duration) model {
 	}), table.WithHeight(10))
 
 	tt := table.New(table.WithColumns([]table.Column{
-		{Title: "Short ID", Width: 10},
+		{Title: "Task ID", Width: 36},
 		{Title: "Task Type", Width: 20},
 		{Title: "Status", Width: 12},
 		{Title: "Prio", Width: 6},
@@ -62,7 +62,7 @@ func initialModel(db *sql.DB, interval time.Duration) model {
 	}), table.WithHeight(15), table.WithFocused(true))
 
 	ct := table.New(table.WithColumns([]table.Column{
-		{Title: "Job ID", Width: 32},
+		{Title: "Job ID", Width: 36},
 		{Title: "Job Name", Width: 25},
 		{Title: "Schedule", Width: 15},
 		{Title: "Last Run", Width: 20},
