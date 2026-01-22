@@ -11,7 +11,7 @@ A high-performance Terminal User Interface (TUI) for monitoring the `pgqueue` ec
 
 ## Installation
 ```bash
-go install [github.com/i-christian/pgqueue/cmd/pgqueue-dash@latest](https://github.com/i-christian/pgqueue/cmd/pgqueue-dash@latest)
+go install https://github.com/i-christian/pgqueue/cmd/pgqueue-dash@latest)
 
 ```
 
