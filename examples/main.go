@@ -134,9 +134,18 @@ func main() {
 
 	jobs, _ := client.ListCronJobs()
 	for _, job := range jobs {
+		prevRun := func() string {
+			if job.PrevRun.IsZero() {
+				return "N/A"
+			}
+
+			return job.PrevRun.Format(time.DateTime)
+		}
 		fmt.Printf(
-			"Cron %d → next: %s\n",
+			"Cron Job:%v %d ->prev: %s -> next: %s\n",
+			job.Job,
 			job.ID,
+			prevRun(),
 			job.NextRun.Format(time.DateTime),
 		)
 	}

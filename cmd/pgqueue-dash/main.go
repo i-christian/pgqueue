@@ -38,6 +38,7 @@ func main() {
 	if err != nil {
 		log.Fatal("DB Open Failed: ", err)
 	}
+	defer db.Close()
 	db.SetMaxOpenConns(3)
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(time.Hour)
