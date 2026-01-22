@@ -16,12 +16,13 @@ import (
 type (
 	TickMsg       time.Time
 	DataUpdateMsg struct {
-		overviewRows []table.Row
-		taskRows     []table.Row
-		cronRows     []table.Row
-		activeConns  int
-		totalTasks   int
-		Err          error
+		overviewRows  []table.Row
+		taskRows      []table.Row
+		cronRows      []table.Row
+		activeConns   int
+		totalTasks    int
+		totalCronJobs int
+		Err           error
 	}
 )
 
@@ -31,14 +32,15 @@ func (m model) fetchData() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 
-		var conns, total int
+		var conns, totalT, totalC int
 		err := m.db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity").Scan(&conns)
 		if err != nil {
 			return DataUpdateMsg{Err: err}
 		}
 
 		filter := "%" + m.searchInput.Value() + "%"
-		_ = m.db.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE task_type ILIKE $1", filter).Scan(&total)
+		_ = m.db.QueryRowContext(ctx, "SELECT count(*) FROM tasks WHERE task_type ILIKE $1", filter).Scan(&totalT)
+		_ = m.db.QueryRowContext(ctx, "SELECT count(*) FROM cron_jobs WHERE name ILIKE $1", filter).Scan(&totalC)
 
 		oRows, _ := m.db.QueryContext(ctx, `(SELECT 'Status: ' || status, count(*) FROM tasks GROUP BY status) UNION ALL (SELECT 'Priority: ' || priority::text, count(*) FROM tasks GROUP BY priority) ORDER BY 1`)
 		defer oRows.Close()
@@ -50,12 +52,12 @@ func (m model) fetchData() tea.Cmd {
 			ov = append(ov, table.Row{cat, fmt.Sprintf("%d", count)})
 		}
 
-		offset := m.currentPage * pageSize
+		tOffset := m.taskPage * pageSize
 		tRows, _ := m.db.QueryContext(ctx, `
 			SELECT task_id, task_type, status, priority, LEFT(COALESCE(last_error, '-'), 45)
 			FROM tasks WHERE (task_type ILIKE $1 OR last_error ILIKE $1)
 			ORDER BY created_at DESC LIMIT $2 OFFSET $3
-		`, filter, pageSize, offset)
+		`, filter, pageSize, tOffset)
 		defer tRows.Close()
 		var tv []table.Row
 		for tRows.Next() {
@@ -65,11 +67,13 @@ func (m model) fetchData() tea.Cmd {
 			tv = append(tv, table.Row{id[:8], tType, status, fmt.Sprintf("%d", prio), errStr})
 		}
 
+		cOffset := m.cronPage * pageSize
 		cRows, err := m.db.QueryContext(ctx, `
 			SELECT job_id, name, expression, last_run_at, next_run_at 
-			FROM cron_jobs 
-			ORDER BY name ASC
-		`)
+			FROM cron_jobs WHERE name ILIKE $1
+			ORDER BY name ASC LIMIT $2 OFFSET $3
+		`, filter, pageSize, cOffset)
+
 		var cv []table.Row
 		if err == nil {
 			defer cRows.Close()
@@ -77,22 +81,22 @@ func (m model) fetchData() tea.Cmd {
 				var jobID uuid.UUID
 				var name, expr string
 				var last, next sql.NullTime
-
 				cRows.Scan(&jobID, &name, &expr, &last, &next)
 
-				lStr := "-"
+				lStr := subtleStyle.Render("-")
 				if last.Valid {
 					lStr = last.Time.Format(time.DateTime)
 				}
-				nStr := "-"
+				nStr := successStyle.Render("-")
 				if next.Valid {
 					nStr = next.Time.Format(time.DateTime)
 				}
-				cv = append(cv, table.Row{jobID.String(), name, expr, lStr, nStr})
+
+				cv = append(cv, table.Row{jobID.String()[:8], name, expr, lStr, nStr})
 			}
 		}
 
-		return DataUpdateMsg{ov, tv, cv, conns, total, nil}
+		return DataUpdateMsg{ov, tv, cv, conns, totalT, totalC, nil}
 	}
 }
 

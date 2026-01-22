@@ -39,8 +39,11 @@ type model struct {
 	activeConns   int
 	lastUpdated   time.Time
 	err           error
-	currentPage   int
+
+	taskPage      int
 	totalTasks    int
+	cronPage      int
+	totalCronJobs int
 }
 
 // initialModel sets up the UI components with default dimensions and styling.
@@ -77,7 +80,8 @@ func initialModel(db *sql.DB, interval time.Duration) model {
 		pollInterval:  interval,
 		searchInput:   ti,
 		activeTab:     tabOverview,
-		currentPage:   0,
+		taskPage:      0,
+		cronPage:      0,
 	}
 }
 
@@ -105,7 +109,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "enter" || msg.String() == "esc" {
 				m.searching = false
 				m.searchInput.Blur()
-				m.currentPage = 0
+				m.taskPage = 0
 				return m, m.fetchData()
 			}
 			m.searchInput, cmd = m.searchInput.Update(msg)
@@ -128,6 +132,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "tab", "right":
 			m.activeTab = (m.activeTab + 1) % 3
+			return m, m.fetchData()
 		case "left":
 			m.activeTab = (m.activeTab + 2) % 3
 		case "/":
@@ -136,13 +141,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.searchInput.Focus()
 			}
 		case "n":
-			if m.activeTab == tabTasks && (m.currentPage+1)*pageSize < m.totalTasks {
-				m.currentPage++
+			if m.activeTab == tabTasks && (m.taskPage+1)*pageSize < m.totalTasks {
+				m.taskPage++
+				return m, m.fetchData()
+			}
+			if m.activeTab == tabCron && (m.cronPage+1)*pageSize < m.totalCronJobs {
+				m.cronPage++
 				return m, m.fetchData()
 			}
 		case "p":
-			if m.activeTab == tabTasks && m.currentPage > 0 {
-				m.currentPage--
+			if m.activeTab == tabTasks && m.taskPage > 0 {
+				m.taskPage--
+				return m, m.fetchData()
+			}
+			if m.activeTab == tabCron && m.cronPage > 0 {
+				m.cronPage--
 				return m, m.fetchData()
 			}
 		case "enter":

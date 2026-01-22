@@ -53,11 +53,12 @@ func (m model) View() string {
 		inactiveTabStyle.Render("CRON JOBS"),
 	}
 
-	if m.activeTab == tabOverview {
+	switch m.activeTab {
+	case tabOverview:
 		tabs[0] = activeTabStyle.Render("OVERVIEW")
-	} else if m.activeTab == tabTasks {
+	case tabTasks:
 		tabs[1] = activeTabStyle.Render("TASK LIST")
-	} else {
+	default:
 		tabs[2] = activeTabStyle.Render("CRON JOBS")
 	}
 	tabRow := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
@@ -65,12 +66,16 @@ func (m model) View() string {
 	var content string
 	switch m.activeTab {
 	case tabOverview:
-		content = m.overviewTable.View()
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Foreground(lipgloss.Color("62")).Bold(true).Render("\n SYSTEM METRICS"),
+			m.overviewTable.View(),
+		)
 	case tabTasks:
-		pagination := pageStyle.Render(fmt.Sprintf("Page %d (Total: %d) • [n]ext/[p]rev", m.currentPage+1, m.totalTasks))
+		pagination := pageStyle.Render(fmt.Sprintf(" Task Page %d/%d • [n]ext/[p]rev • [/] search", m.taskPage+1, (m.totalTasks/pageSize)+1))
 		content = lipgloss.JoinVertical(lipgloss.Left, m.searchInput.View(), "\n", m.taskTable.View(), "\n", pagination)
 	case tabCron:
-		content = lipgloss.JoinVertical(lipgloss.Left, "\n", m.cronTable.View())
+		pagination := pageStyle.Render(fmt.Sprintf(" Cron Page %d/%d • [n]ext/[p]rev", m.cronPage+1, (m.totalCronJobs/pageSize)+1))
+		content = lipgloss.JoinVertical(lipgloss.Left, "\n", m.cronTable.View(), "\n", pagination)
 	}
 
 	var statusLine string
