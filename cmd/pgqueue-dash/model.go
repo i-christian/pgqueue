@@ -33,6 +33,7 @@ type model struct {
 	detailView    viewport.Model
 	showDetail    bool
 	searching     bool
+	confirming    bool
 	activeConns   int
 	lastUpdated   time.Time
 	err           error
@@ -100,6 +101,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchInput, cmd = m.searchInput.Update(msg)
 			return m, cmd
 		}
+		if m.confirming {
+			switch msg.String() {
+			case "y", "Y":
+				m.confirming = false
+				return m, m.retryTask()
+			case "n", "N", "esc":
+				m.confirming = false
+				return m, nil
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -123,8 +136,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.showTaskDetail()
 			}
 		case "r":
-			if m.activeTab == tabTasks {
-				return m, m.retryTask()
+			if m.activeTab == tabTasks && !m.showDetail && !m.searching {
+				m.confirming = true
+				return m, nil
 			}
 		}
 	case TickMsg:
@@ -143,8 +157,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailView.SetContent(msg)
 		m.showDetail = true
 	}
+
 	if m.activeTab == tabTasks && !m.showDetail && !m.searching {
 		m.taskTable, cmd = m.taskTable.Update(msg)
 	}
+
 	return m, cmd
 }

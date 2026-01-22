@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type (
@@ -66,27 +67,35 @@ func (m model) fetchData() tea.Cmd {
 	}
 }
 
-// showTaskDetail fetches the full JSON payload and error string
-// for the selected task and prepares it for the viewport.
+// showTaskDetail fetches the full JSON payload and error string for the selected task.
+// It formats the output with Lipgloss styles before populating the viewport.
 func (m model) showTaskDetail() tea.Cmd {
 	return func() tea.Msg {
 		selected := m.taskTable.SelectedRow()
-
 		if len(selected) == 0 {
 			return nil
 		}
 
-		var p []byte
+		var payload []byte
+		var lastErr sql.NullString
+		err := m.db.QueryRow("SELECT payload, last_error FROM tasks WHERE task_id::text LIKE $1", selected[0]+"%").Scan(&payload, &lastErr)
+		if err != nil {
+			return fmt.Sprintf("Error fetching details: %v", err)
+		}
 
-		var e sql.NullString
+		var raw json.RawMessage = payload
+		prettyJSON, _ := json.MarshalIndent(raw, "", "  ")
 
-		_ = m.db.QueryRow("SELECT payload, last_error FROM tasks WHERE task_id::text LIKE $1", selected[0]+"%").Scan(&p, &e)
+		label := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62"))
+		valStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 
-		var pretty json.RawMessage = p
-
-		fmtP, _ := json.MarshalIndent(pretty, "", "  ")
-
-		return fmt.Sprintf("TASK: %s\nERROR: %s\n\nPAYLOAD:\n%s", selected[0], e.String, string(fmtP))
+		return fmt.Sprintf(
+			"%s %s\n\n%s\n%s\n\n%s\n%s",
+			label.Render("TASK ID:"), valStyle.Render(selected[0]),
+			label.Render("LAST RECORDED ERROR:"), errStyle.Render(lastErr.String),
+			label.Render("DATA PAYLOAD:"), valStyle.Render(string(prettyJSON)),
+		)
 	}
 }
 

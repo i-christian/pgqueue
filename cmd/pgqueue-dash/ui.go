@@ -76,15 +76,32 @@ func (m model) View() string {
 
 	view := lipgloss.JoinVertical(lipgloss.Left, topBar, "\n", tabRow, "\n", content, statusLine)
 
+	if m.confirming {
+		prompt := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("196")).
+			Padding(1, 2).
+			Background(lipgloss.Color("234")).
+			Render("⚠️  RETRY TASK?\n\nThis will re-queue the task for immediate execution.\n\n[y] Confirm  •  [n] Cancel")
+
+		return lipgloss.Place(100, 40, lipgloss.Center, lipgloss.Center, prompt)
+	}
+
 	if m.showDetail {
 		return m.renderDetailModal()
 	}
 	return view
 }
 
-// RenderDetailModal styles the viewport content.
+// renderDetailModal constructs a structured view for task introspection.
+// It uses a viewport for the JSON payload to allow scrolling for large data.
 func (m model) renderDetailModal() string {
-	header := headerStyle.Render(fmt.Sprintf(" TASK DETAILS: %s ", m.taskTable.SelectedRow()[0]))
+	selected := m.taskTable.SelectedRow()
+	if len(selected) == 0 {
+		return ""
+	}
+
+	header := headerStyle.Render(fmt.Sprintf(" 🔍 TASK DETAILS: %s ", selected[0]))
 
 	modalContent := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -92,7 +109,7 @@ func (m model) renderDetailModal() string {
 		"\n",
 		m.detailView.View(),
 		"\n",
-		subtleStyle.Render(" [ESC] Close • [Up/Down] Scroll "),
+		subtleStyle.Render(" [ESC] Back • [↑/↓] Scroll Payload "),
 	)
 
 	return lipgloss.Place(
