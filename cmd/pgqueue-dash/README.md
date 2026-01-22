@@ -40,7 +40,7 @@ pgqueue-dash
 
 #### Using Flags (Best for multiple projects)
 ```
-  pgqueue-dash --dsn="postgres://myuser:mypass@localhost:5432/task_queue?sslmode=disable --poll=2s"
+  pgqueue-dash --dsn="postgres://myuser:mypass@localhost:5432/task_queue?sslmode=disable" --poll=2s
 ```
 
 ## CLI Arguments
