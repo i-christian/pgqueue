@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/google/uuid"
 )
 
 type (
@@ -17,6 +18,7 @@ type (
 	DataUpdateMsg struct {
 		overviewRows []table.Row
 		taskRows     []table.Row
+		cronRows     []table.Row
 		activeConns  int
 		totalTasks   int
 		Err          error
@@ -63,7 +65,34 @@ func (m model) fetchData() tea.Cmd {
 			tv = append(tv, table.Row{id[:8], tType, status, fmt.Sprintf("%d", prio), errStr})
 		}
 
-		return DataUpdateMsg{ov, tv, conns, total, nil}
+		cRows, err := m.db.QueryContext(ctx, `
+			SELECT job_id, name, expression, last_run_at, next_run_at 
+			FROM cron_jobs 
+			ORDER BY name ASC
+		`)
+		var cv []table.Row
+		if err == nil {
+			defer cRows.Close()
+			for cRows.Next() {
+				var jobID uuid.UUID
+				var name, expr string
+				var last, next sql.NullTime
+
+				cRows.Scan(&jobID, &name, &expr, &last, &next)
+
+				lStr := "-"
+				if last.Valid {
+					lStr = last.Time.Format(time.DateTime)
+				}
+				nStr := "-"
+				if next.Valid {
+					nStr = next.Time.Format(time.DateTime)
+				}
+				cv = append(cv, table.Row{jobID.String(), name, expr, lStr, nStr})
+			}
+		}
+
+		return DataUpdateMsg{ov, tv, cv, conns, total, nil}
 	}
 }
 

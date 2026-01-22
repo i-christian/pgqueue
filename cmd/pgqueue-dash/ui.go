@@ -47,20 +47,30 @@ func (m model) View() string {
 		statBoxStyle.Render(fmt.Sprintf("WKR CONNS: %d", m.activeConns)),
 	)
 
-	tabs := []string{inactiveTabStyle.Render("OVERVIEW"), inactiveTabStyle.Render("TASK LIST")}
+	tabs := []string{
+		inactiveTabStyle.Render("OVERVIEW"),
+		inactiveTabStyle.Render("TASK LIST"),
+		inactiveTabStyle.Render("CRON JOBS"),
+	}
+
 	if m.activeTab == tabOverview {
 		tabs[0] = activeTabStyle.Render("OVERVIEW")
-	} else {
+	} else if m.activeTab == tabTasks {
 		tabs[1] = activeTabStyle.Render("TASK LIST")
+	} else {
+		tabs[2] = activeTabStyle.Render("CRON JOBS")
 	}
 	tabRow := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 
 	var content string
-	if m.activeTab == tabOverview {
+	switch m.activeTab {
+	case tabOverview:
 		content = m.overviewTable.View()
-	} else {
+	case tabTasks:
 		pagination := pageStyle.Render(fmt.Sprintf("Page %d (Total: %d) • [n]ext/[p]rev", m.currentPage+1, m.totalTasks))
 		content = lipgloss.JoinVertical(lipgloss.Left, m.searchInput.View(), "\n", m.taskTable.View(), "\n", pagination)
+	case tabCron:
+		content = lipgloss.JoinVertical(lipgloss.Left, "\n", m.cronTable.View())
 	}
 
 	var statusLine string

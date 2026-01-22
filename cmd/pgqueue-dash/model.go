@@ -20,6 +20,7 @@ type tab int
 const (
 	tabOverview tab = iota
 	tabTasks
+	tabCron
 )
 
 // model represents the total state of the dashboard.
@@ -29,6 +30,7 @@ type model struct {
 	pollInterval  time.Duration
 	overviewTable table.Model
 	taskTable     table.Model
+	cronTable     table.Model
 	searchInput   textinput.Model
 	detailView    viewport.Model
 	showDetail    bool
@@ -37,9 +39,8 @@ type model struct {
 	activeConns   int
 	lastUpdated   time.Time
 	err           error
-
-	currentPage int
-	totalTasks  int
+	currentPage   int
+	totalTasks    int
 }
 
 // initialModel sets up the UI components with default dimensions and styling.
@@ -57,6 +58,14 @@ func initialModel(db *sql.DB, interval time.Duration) model {
 		{Title: "Last Error", Width: 45},
 	}), table.WithHeight(15), table.WithFocused(true))
 
+	ct := table.New(table.WithColumns([]table.Column{
+		{Title: "Job ID", Width: 32},
+		{Title: "Job Name", Width: 25},
+		{Title: "Schedule", Width: 15},
+		{Title: "Last Run", Width: 20},
+		{Title: "Next Run", Width: 20},
+	}), table.WithHeight(15))
+
 	ti := textinput.New()
 	ti.Placeholder = "Filter..."
 
@@ -64,6 +73,7 @@ func initialModel(db *sql.DB, interval time.Duration) model {
 		db:            db,
 		overviewTable: ot,
 		taskTable:     tt,
+		cronTable:     ct,
 		pollInterval:  interval,
 		searchInput:   ti,
 		activeTab:     tabOverview,
@@ -116,18 +126,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "tab", "right", "left":
-			m.activeTab = (m.activeTab + 1) % 2
+		case "tab", "right":
+			m.activeTab = (m.activeTab + 1) % 3
+		case "left":
+			m.activeTab = (m.activeTab + 2) % 3
 		case "/":
-			m.searching = true
-			return m, m.searchInput.Focus()
+			if m.activeTab == tabTasks {
+				m.searching = true
+				return m, m.searchInput.Focus()
+			}
 		case "n":
-			if (m.currentPage+1)*pageSize < m.totalTasks {
+			if m.activeTab == tabTasks && (m.currentPage+1)*pageSize < m.totalTasks {
 				m.currentPage++
 				return m, m.fetchData()
 			}
 		case "p":
-			if m.currentPage > 0 {
+			if m.activeTab == tabTasks && m.currentPage > 0 {
 				m.currentPage--
 				return m, m.fetchData()
 			}
@@ -149,6 +163,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.overviewTable.SetRows(msg.overviewRows)
 			m.taskTable.SetRows(msg.taskRows)
+			m.cronTable.SetRows(msg.cronRows)
 			m.activeConns = msg.activeConns
 			m.totalTasks = msg.totalTasks
 		}
@@ -158,8 +173,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showDetail = true
 	}
 
-	if m.activeTab == tabTasks && !m.showDetail && !m.searching {
-		m.taskTable, cmd = m.taskTable.Update(msg)
+	if !m.showDetail && !m.searching {
+		if m.activeTab == tabTasks {
+			m.taskTable, cmd = m.taskTable.Update(msg)
+		} else if m.activeTab == tabCron {
+			m.cronTable, cmd = m.cronTable.Update(msg)
+		}
 	}
 
 	return m, cmd
