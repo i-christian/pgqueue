@@ -161,7 +161,7 @@ Supported options include:
 mux := pgqueue.NewServeMux()
 
 // Middleware runs for every task
-mux.Use(pgqueue.SlogMiddleware(client.Logger, client.Metrics))
+mux.Use(pgqueue.SlogMiddleware(client.Logger))
 
 // Exact match
 mux.HandleFunc("task:send:email", sendEmailHandler)
