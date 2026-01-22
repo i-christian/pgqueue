@@ -4,7 +4,7 @@ VERSION=1.0.0
 MAIN_PATH=.
 
 # Database Configuration
-PG_CONN_STRING ?= "postgres://myuser:mypass@localhost:5432/task_queue?sslmode=disable"
+PG_CONN_STRING ?= ""
 
 .PHONY: all build run clean test help install
 
