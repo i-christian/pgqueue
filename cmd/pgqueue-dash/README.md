@@ -1,6 +1,6 @@
 # pgqueue-dash 🐘
 
-A high-performance Terminal User Interface (TUI) for monitoring the `pgqueue` ecosystem.
+A high-performance Terminal User Interface (TUI) for monitoring the `pgqueue` task queue.
 
 ## Features
 - **Live Stats**: Real-time worker connection counts and task distribution.
@@ -11,7 +11,7 @@ A high-performance Terminal User Interface (TUI) for monitoring the `pgqueue` ec
 
 ## Installation
 ```bash
-go install https://github.com/i-christian/pgqueue/cmd/pgqueue-dash@latest)
+go install https://github.com/i-christian/pgqueue/cmd/pgqueue-dash@latest
 
 ```
 
