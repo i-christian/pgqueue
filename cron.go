@@ -2,6 +2,7 @@ package pgqueue
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -20,22 +21,83 @@ func (c *Client) ScheduleCron(
 		return 0, errors.New("cron is disabled")
 	}
 
-	id, err := c.queue.scheduler.AddFunc(spec, func() {
-		now := time.Now().Truncate(time.Minute)
-		dedupKey := fmt.Sprintf("%s:%s", jobName, now.Format(time.RFC3339))
+	schedule, err := cron.ParseStandard(spec)
+	if err != nil {
+		return 0, fmt.Errorf("invalid cron spec: %w", err)
+	}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	now := time.Now()
+	nextRun := schedule.Next(now)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var jobID string
+	err = c.db.QueryRowContext(ctx, `
+		INSERT INTO cron_jobs (name, expression, next_run_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (name) DO UPDATE
+		SET expression = EXCLUDED.expression,
+		    next_run_at = EXCLUDED.next_run_at
+		RETURNING job_id
+	`, jobName, spec, nextRun).Scan(&jobID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to persist cron job: %w", err)
+	}
+
+	entryID, err := c.queue.scheduler.AddFunc(spec, func() {
+		runCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if err := c.Enqueue(ctx, task, payload, WithDedup(dedupKey)); err != nil {
-			c.Logger.Error("cron enqueue error:", "job", jobName, "error", err)
+		now := time.Now().Truncate(time.Minute)
+		dedupKey := fmt.Sprintf("%s:%s", jobID, now.Format(time.RFC3339))
+
+		enqueueErr := c.Enqueue(
+			runCtx,
+			task,
+			payload,
+			WithDedup(dedupKey),
+		)
+
+		next := schedule.Next(time.Now())
+
+		status := "success"
+		var errMsg sql.NullString
+
+		if enqueueErr != nil {
+			status = "failed"
+			errMsg = sql.NullString{
+				String: enqueueErr.Error(),
+				Valid:  true,
+			}
+			c.Logger.Error(
+				"cron enqueue failed",
+				"job", jobName,
+				"error", errMsg,
+				"status", status,
+			)
+		}
+
+		_, dbErr := c.db.ExecContext(runCtx, `
+			UPDATE cron_jobs
+			SET last_run_at = NOW(),
+			    next_run_at = $1
+			WHERE job_id = $2
+		`, next, jobID)
+
+		if dbErr != nil {
+			c.Logger.Error(
+				"cron metadata sync failed",
+				"job", jobName,
+				"error", dbErr,
+			)
 		}
 	})
 	if err != nil {
 		return 0, err
 	}
 
-	return CronID(id), nil
+	return CronID(entryID), nil
 }
 
 // ListCronJobs returns a list of scheduled tasks
@@ -59,11 +121,13 @@ func (c *Client) ListCronJobs() ([]CronJobInfo, error) {
 }
 
 // RemoveCron removes a scheduled task from cron
-func (c *Client) RemoveCron(id CronID) error {
+func (c *Client) RemoveCron(id CronID, jobID string) error {
 	if c.queue.scheduler == nil {
 		return errors.New("cron is disabled")
 	}
 
 	c.queue.scheduler.Remove(cron.EntryID(id))
-	return nil
+	_, err := c.db.Exec("DELETE FROM cron_jobs WHERE job_id = $1", jobID)
+
+	return err
 }
