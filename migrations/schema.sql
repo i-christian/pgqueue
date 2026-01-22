@@ -2,8 +2,6 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
     job_id UUID PRIMARY KEY DEFAULT uuidv7(),
     name TEXT UNIQUE NOT NULL,
     expression TEXT NOT NULL,
-    task_type TEXT NOT NULL,
-    payload JSONB NOT NULL,
     last_run_at TIMESTAMP WITH TIME ZONE,
     next_run_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
