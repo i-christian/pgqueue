@@ -126,8 +126,8 @@ func (m model) showTaskDetail() tea.Cmd {
 		valStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 
 		return fmt.Sprintf(
-			"%s %s\n\n%s\n%s\n\n%s\n%s",
-			label.Render("FULL TASK UUID:"), valStyle.Render(fullID),
+			"\n%s\n%s\n\n%s\n%s",
+
 			label.Render("LAST RECORDED ERROR:"), lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(lastErr.String),
 			label.Render("DATA PAYLOAD:"), valStyle.Render(string(prettyJSON)),
 		)

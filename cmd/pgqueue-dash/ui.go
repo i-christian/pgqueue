@@ -128,7 +128,7 @@ func (m model) renderDetailModal() string {
 	)
 
 	return lipgloss.Place(
-		100, 40,
+		50, 20,
 		lipgloss.Center, lipgloss.Center,
 		popupStyle.Render(modalContent),
 	)
