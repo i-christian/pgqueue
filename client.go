@@ -48,10 +48,9 @@ func NewClient(db *sql.DB, opts ...QueueOption) (client *Client, err error) {
 	}
 
 	client = &Client{
-		db:      db,
-		queue:   q,
-		Metrics: NewMetrics(),
-		Logger:  logger,
+		db:     db,
+		queue:  q,
+		Logger: logger,
 	}
 
 	q.wg.Add(1)

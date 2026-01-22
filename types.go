@@ -51,10 +51,9 @@ func (p Priority) String() string {
 }
 
 type Client struct {
-	db      *sql.DB
-	queue   *Queue
-	Metrics *Metrics
-	Logger  *slog.Logger
+	db     *sql.DB
+	queue  *Queue
+	Logger *slog.Logger
 }
 
 type Queue struct {
