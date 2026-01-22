@@ -142,8 +142,7 @@ func main() {
 			return job.PrevRun.Format(time.DateTime)
 		}
 		fmt.Printf(
-			"Cron Job:%v %d ->prev: %s -> next: %s\n",
-			job.Job,
+			"CronID %d ->prev: %s -> next: %s\n",
 			job.ID,
 			prevRun(),
 			job.NextRun.Format(time.DateTime),
