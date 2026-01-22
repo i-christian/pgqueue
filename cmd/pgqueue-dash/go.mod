@@ -1,4 +1,4 @@
-module pgqueue-dash
+module github.com/i-christian/pgqueue/cmd/pgqueue-dash
 
 go 1.25.0
 
