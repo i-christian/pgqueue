@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -101,7 +100,7 @@ func main() {
 	mux := pgqueue.NewServeMux()
 
 	// Middleware runs for every task
-	mux.Use(pgqueue.SlogMiddleware(client.Logger, client.Metrics))
+	mux.Use(pgqueue.SlogMiddleware(client.Logger))
 
 	// Register handlers
 	mux.HandleFunc(TaskSendEmail, sendEmailHandler)
@@ -157,28 +156,6 @@ func main() {
 			fmt.Printf("--- Queue Stats ---\nPending: %d | Processing: %d | Failed: %d | Success: %d\n",
 				stats.Pending, stats.Processing, stats.Failed, stats.Done)
 		}
-	}()
-
-	// Start an introspection server
-	// ```curl localhost:8081/stats```
-	go func() {
-		mux := http.NewServeMux()
-
-		mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-			stats, _ := client.Stats(context.Background())
-			perf := client.GetMetricSnapshot()
-
-			response := map[string]any{
-				"queue_counts": stats,
-				"performance":  perf.Stats,
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
-		})
-
-		log.Println("Monitoring server running on :8081")
-		http.ListenAndServe(":8081", mux)
 	}()
 
 	// ---- Graceful shutdown ----
