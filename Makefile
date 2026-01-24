@@ -3,7 +3,7 @@ DB_IMAGE=postgres:18-alpine
 HOST_PORT=5433
 DB_DSN="postgres://user:pass@localhost:$(HOST_PORT)/task_queue_test?sslmode=disable"
 
-.PHONY: db-up db-down test test-clean bench
+.PHONY: db-up db-down test test-clean bench release
 
 # Spin up the test database in a docker container
 db-up:
@@ -41,3 +41,15 @@ bench: db-down db-up
 	@echo "Running performance benchmarks..."
 	@GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -bench=. -benchmem ./...
 	@$(MAKE) db-down
+
+## release: Tag and push a new version (usage: make release V=0.1.0)
+release:
+ifndef V
+	$(error version is not set. Usage: make release V=x.y.z)
+endif
+	@git add .
+	@git commit -m "Release $(VERSION)"
+	@echo "Releasing version $(V)..."
+	@git tag -a v$(V) -m "Release v$(V)"
+	@git push origin v$(V)
+	@echo "Version v$(V) pushed to origin."
