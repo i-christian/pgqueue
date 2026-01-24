@@ -28,14 +28,20 @@ import (
 //
 // The server is safe to run across multiple processes or machines
 // connected to the same PostgreSQL database.
-func NewServer(db *sql.DB, connString string, concurrency int, handler WorkerHandler) *Server {
-	return &Server{
+func NewServer(db *sql.DB, connString string, concurrency int, handler WorkerHandler, opts ...ServerOption) *Server {
+	s := &Server{
 		connString:  connString,
 		db:          db,
 		handler:     handler,
 		batchSize:   10,
 		concurrency: concurrency,
 	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s
 }
 
 // Start launches the worker pool and PostgreSQL LISTEN loop.

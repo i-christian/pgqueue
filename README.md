@@ -3,6 +3,7 @@
 ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/i-christian/pgqueue)
 [![License](https://img.shields.io/github/license/i-christian/pgqueue)](./LICENSE)
 [![Project Status](https://img.shields.io/badge/status-learning--project-orange)](#)
+[![Tests](https://github.com/i-christian/pgqueue/actions/workflows/ci.yml/badge.svg)](https://github.com/i-christian/pgqueue/actions/workflows/ci.yml)
 
 **pgqueue** is a lightweight, asynchronous, durable, PostgreSQL-backed job queue for Go.
 
@@ -60,7 +61,6 @@ flowchart LR
     M["ServeMux"]
     H["Task Handlers"]
     R["Retry & Rescue"]
-    S["Metrics / Stats"]
 
     %% Flows
     P --> T
@@ -73,21 +73,18 @@ flowchart LR
     H -->|failure| R
     R --> T
     T --> A
-    W --> S
 
     %% Styles
     classDef producer fill:#E3F2FD,stroke:#1565C0,stroke-width:2px;
     classDef postgres fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px;
     classDef worker fill:#FFF8E1,stroke:#EF6C00,stroke-width:2px;
     classDef handler fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px;
-    classDef metrics fill:#ECEFF1,stroke:#455A64,stroke-width:2px;
 
     class P,C producer;
     class T,A,N postgres;
     class W,M,R worker;
     class H handler;
-    class S metrics;  
-```
+````
 
 ---
 
@@ -98,18 +95,19 @@ go get github.com/i-christian/pgqueue
 ```
 
 ---
+
 ## Initilise queue's client with options
+
 ```go
 client, err := pgqueue.NewClient(
     db,
     pgqueue.WithRescueConfig(5*time.Minute, 30*time.Minute),
-		pgqueue.WithCleanupConfig(1*time.Hour, 24*time.Hour, pgqueue.ArchiveStrategy),
-    // Enables cron job scheduling, which is disabled by default 
-		pgqueue.WithCronEnabled(),
-  )
+    pgqueue.WithCleanupConfig(1*time.Hour, 24*time.Hour, pgqueue.ArchiveStrategy),
+    pgqueue.WithCronEnabled(),
+)
 if err != nil {
     log.Fatalf("Failed to init queue: %v", err)
-
+}
 ```
 
 ## Enqueue a Job
@@ -167,12 +165,11 @@ mux.HandleFunc("task:cleanup:", cleanupHandler)
 mux.HandleFunc("task:report:", reportHandler)
 
 // Start worker pool
-server := pgqueue.NewServer(db, connStr, 3, mux)
+server := pgqueue.NewServer(db, connStr, 3, mux, pgqueue.WithBatchSize(20))
 if err := server.Start(); err != nil {
-		log.Fatal(err)
-	}
-	log.Println("Worker server started...")
-
+    log.Fatal(err)
+}
+log.Println("Worker server started...")
 ```
 
 ---
@@ -202,8 +199,7 @@ task:email:user:UUID
 * Metrics are keyed by task type
 * Unbounded types can cause **unbounded memory growth**
 
-**Rule of thumb:**
-Use task **categories**, not per-entity identifiers.
+**Rule of thumb:** Use task **categories**, not per-entity identifiers.
 
 ---
 
@@ -213,22 +209,22 @@ Run scheduled jobs **once**, even when multiple workers or servers are running.
 
 ```go
 cronID, err := client.ScheduleCron(
-	"0 * * * *",
-	"hourly-report",
-	TaskReportBase+"hourly",
-	ReportPayload{ReportName: "Hourly"},
+    "0 * * * *",
+    "hourly-report",
+    TaskReportBase+"hourly",
+    ReportPayload{ReportName: "Hourly"},
 )
 if err != nil {
-	log.Fatal(err)
+    log.Fatal(err)
 }
 
 jobs, _ := client.ListCronJobs()
 for _, job := range jobs {
-	fmt.Printf(
-		"Cron %d → next: %s\n",
-		job.ID,
-		job.NextRun.Format(time.DateTime),
-	)
+    fmt.Printf(
+        "Cron %d → next: %s\n",
+        job.ID,
+        job.NextRun.Format(time.DateTime),
+    )
 }
 
 // Optional cleanup
@@ -293,7 +289,6 @@ go install github.com/i-christian/pgqueue/cmd/pgqueue-dash@latest
 
 ```bash
 pgqueue-dash --dsn="postgres://user:pass@localhost:5432/dbname"
-
 ```
 
 👉 **[View Full Dashboard Documentation](https://github.com/i-christian/pgqueue/tree/main/cmd/pgqueue-dash/README.md)**
@@ -321,3 +316,49 @@ Avoid pgqueue if you need:
 * Massive fan-out (millions of jobs per second)
 * Cross-region replication
 * Exactly-once semantics
+
+---
+
+## Testing
+
+pgqueue uses PostgreSQL V18 for integration tests.
+
+### Run tests locally (Docker required)
+
+```bash
+make test-full
+```
+
+This will:
+
+* start a temporary PostgreSQL container
+* run all tests with the race detector
+* clean up automatically
+
+### Run tests against an existing PostgreSQL instance
+
+```bash
+export TEST_DB_DSN="postgres://user:pass@localhost:5432/task_queue_test?sslmode=disable"
+go test -v ./...
+```
+
+### Benchmarks
+
+```bash
+make bench
+```
+
+Benchmarks run against a fresh PostgreSQL container and are intended for local performance exploration only.
+
+---
+
+## Contributing
+
+Contributions are welcome! Here’s how you can help:
+
+* 🐛 **Report bugs** by opening issues
+* 💡 **Suggest features** via GitHub discussions or issues
+* ✍️ **Submit pull requests** with clear descriptions
+* 📝 **Update documentation** and examples
+
+Please follow standard Golang conventions and run `make test-full` before submitting any PR to ensure nothing breaks.

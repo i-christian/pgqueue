@@ -39,5 +39,5 @@ clean:
 # Run benchmarks
 bench: db-down db-up
 	@echo "Running performance benchmarks..."
-	@O_ENV=test TEST_DB_DSN=$(DB_DSN) go test -bench=. -benchmem ./...
+	@GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -bench=. -benchmem ./...
 	@$(MAKE) db-down

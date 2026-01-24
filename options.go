@@ -83,3 +83,27 @@ func WithDedup(key string) EnqueueOption {
 		c.dedupKey = &key
 	}
 }
+
+// ServerOption configures a worker Server.
+//
+// Server options control how workers fetch and process tasks,
+// such as batch size or concurrency-related behavior.
+type ServerOption func(*Server)
+
+// WithBatchSize configures how many tasks a worker fetches per database round-trip.
+//
+// A larger batch size increases throughput by reducing database transactions,
+// but may reduce fairness between workers(starvation of goroutines) and increase the number of tasks
+// locked by a single worker.
+//
+// Sensible values typically range from 5 to 20.
+// The default batch size is 10.
+func WithBatchSize(n uint16) ServerOption {
+	return func(s *Server) {
+		if n == 0 {
+			return
+		}
+		s.batchSize = n
+	}
+}
+

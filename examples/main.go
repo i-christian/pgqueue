@@ -110,6 +110,9 @@ func main() {
 	// Start workers
 	server := pgqueue.NewServer(db, connStr, 3, mux)
 
+	// Can be started with an optional batch size like the commented line here.
+	// server := pgqueue.NewServer(db, connStr, 3, mux, pgqueue.WithBatchSize(5))
+
 	// This spins up goroutines and returns immediately.
 	if err := server.Start(); err != nil {
 		log.Fatal(err)
