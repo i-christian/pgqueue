@@ -15,7 +15,19 @@ import (
 	"github.com/lib/pq"
 )
 
-// NewServer initializes the worker pool settings.
+// NewServer initializes a pgqueue worker server.
+//
+// A Server manages a pool of background workers that:
+//
+//   - Listen for task notifications via LISTEN / NOTIFY
+//   - Fetch tasks safely using SELECT ... FOR UPDATE SKIP LOCKED
+//   - Process tasks concurrently with bounded parallelism
+//
+// It requires a shared *sql.DB connection, a connection string for the LISTEN/NOTIFY listener,
+// the desired number of concurrent worker goroutines, and a handler to process the tasks.
+//
+// The server is safe to run across multiple processes or machines
+// connected to the same PostgreSQL database.
 func NewServer(db *sql.DB, connString string, concurrency int, handler WorkerHandler) *Server {
 	return &Server{
 		connString:  connString,
@@ -26,10 +38,13 @@ func NewServer(db *sql.DB, connString string, concurrency int, handler WorkerHan
 	}
 }
 
-// Start launches the background workers and listener in a separate goroutine.
+// Start launches the worker pool and PostgreSQL LISTEN loop.
 //
-// Strictly non-blocking: It returns nil immediately if startup is successful.
-// You must call Shutdown(ctx) to stop the server and wait for workers to finish.
+// Start is strictly non-blocking: it initializes background goroutines
+// and returns immediately if startup is successful.
+//
+// Calling Start on an already-running server returns an error.
+// Shutdown(ctx) must be called to gracefully stop workers.
 func (s *Server) Start() error {
 	if !s.running.CompareAndSwap(false, true) {
 		return errors.New("server already running")
@@ -48,7 +63,7 @@ func (s *Server) Start() error {
 		time.Minute,
 		func(ev pq.ListenerEventType, err error) {
 			if err != nil {
-				slog.Error("Listener error", "error", err)
+				slog.Error("pgqueue listener error", "error", err)
 			}
 		},
 	)
@@ -76,7 +91,7 @@ func (s *Server) Start() error {
 		}
 	})
 
-	slog.Info("Starting workers...", "count", s.concurrency)
+	slog.Info("pgqueue: starting workers", "count", s.concurrency)
 
 	for i := 0; i < s.concurrency; i++ {
 		s.wg.Add(1)
@@ -89,14 +104,16 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Shutdown gracefully stops the server.
-// It cancels the internal context and waits for all workers to finish.
+// Shutdown gracefully stops the worker server.
+//
+// It cancels the internal context and waits for all workers
+// to finish processing their current tasks or until ctx expires.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if !s.running.Load() {
 		return nil
 	}
 
-	slog.Info("pgqueue: Stopping workers...")
+	slog.Info("pgqueue: stopping workers")
 	s.cancel()
 
 	done := make(chan struct{})
@@ -107,13 +124,21 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-done:
-		slog.Info("pgqueue: All workers stopped.")
+		slog.Info("pgqueue: all workers stopped")
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
 
+// workerLoop runs the main execution loop for a single worker.
+//
+// Each worker:
+//
+//   - Applies startup jitter to avoid synchronized DB spikes
+//   - Continuously drains available work when tasks exist
+//   - Sleeps when idle using LISTEN / NOTIFY and a safety ticker
+//   - Applies exponential backoff on repeated database errors
 func (s *Server) workerLoop(ctx context.Context, wakeUp <-chan struct{}) {
 	time.Sleep(time.Duration(rand.N(2000)) * time.Millisecond)
 
@@ -126,21 +151,22 @@ func (s *Server) workerLoop(ctx context.Context, wakeUp <-chan struct{}) {
 		count, err := s.processBatch(ctx, s.handler)
 		if err != nil {
 			errorCount++
+
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			
+
 			if errorCount == 1 || errorCount%10 == 0 {
-				slog.Error("Worker encountered error", "err", err, "attempt", errorCount)
+				slog.Error("pgqueue worker error", "err", err, "attempt", errorCount)
 			}
 
-			sleepDuration := time.Duration(100*(1<<min(errorCount, 5))) * time.Millisecond
-			
+			sleep := time.Duration(100*(1<<min(errorCount, 5))) * time.Millisecond
+
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(sleepDuration):
-				continue 
+			case <-time.After(sleep):
+				continue
 			}
 		}
 
@@ -154,13 +180,17 @@ func (s *Server) workerLoop(ctx context.Context, wakeUp <-chan struct{}) {
 		case <-ctx.Done():
 			return
 		case <-wakeUp:
-			// Listener says new task arrived. Loop around to fetch it.
+			// Signaled via PostgreSQL NOTIFY
 		case <-ticker.C:
-			// Periodic safety check.
+			// Periodic safety poll.
 		}
 	}
 }
 
+// processBatch fetches and processes a batch of tasks.
+//
+// It returns the number of tasks processed and an error if the batch
+// could not be fetched or committed.
 func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) (int, error) {
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
@@ -171,29 +201,31 @@ func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) (int, 
 		return 0, err
 	}
 
-	count := len(tasks)
-	if count == 0 {
+	if len(tasks) == 0 {
 		return 0, nil
 	}
 
 	for _, task := range tasks {
-		jobErr := handler.ProcessTask(ctx, &task)
-		if jobErr != nil {
+		if jobErr := handler.ProcessTask(ctx, &task); jobErr != nil {
 			s.handleFailure(ctx, task, jobErr)
 		} else {
 			s.markDone(ctx, task.ID)
 		}
 	}
 
-	return count, nil
+	return len(tasks), nil
 }
 
+// fetchBatch atomically selects and claims a batch of pending tasks.
+//
+// Tasks are claimed using UPDATE ... FOR UPDATE SKIP LOCKED to ensure
+// that no two workers can process the same task concurrently.
 func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback() 
+	defer tx.Rollback()
 
 	rows, err := tx.QueryContext(ctx, `
 		UPDATE tasks
@@ -202,10 +234,11 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 		    updated_at = NOW()
 		WHERE task_id IN (
 			SELECT task_id
-			FROM tasks 
-			WHERE status = 'pending' AND next_run_at <= NOW()
-			ORDER BY priority DESC, next_run_at ASC 
-			FOR UPDATE SKIP LOCKED 
+			FROM tasks
+			WHERE status = 'pending'
+			  AND next_run_at <= NOW()
+			ORDER BY priority DESC, next_run_at ASC
+			FOR UPDATE SKIP LOCKED
 			LIMIT $1
 		)
 		RETURNING task_id, task_type, payload, attempts, max_retries, priority
@@ -219,7 +252,14 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 	for rows.Next() {
 		var t Task
 		var payload []byte
-		if err := rows.Scan(&t.ID, &t.Type, &payload, &t.Attempts, &t.MaxRetries, &t.Priority); err != nil {
+		if err := rows.Scan(
+			&t.ID,
+			&t.Type,
+			&payload,
+			&t.Attempts,
+			&t.MaxRetries,
+			&t.Priority,
+		); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 		t.Payload = payload
@@ -237,47 +277,52 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 	return tasks, nil
 }
 
+// markDone marks a task as successfully completed.
 func (s *Server) markDone(ctx context.Context, id uuid.UUID) {
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE tasks 
-		SET status = $2, 
-		    updated_at = NOW() 
-		WHERE task_id = $1`,
-		id, TaskDone,
-	)
+		UPDATE tasks
+		SET status = $2,
+		    updated_at = NOW()
+		WHERE task_id = $1
+	`, id, TaskDone)
 	if err != nil {
-		log.Printf("Internal Error: Failed to mark task %s as done: %v", id, err)
+		log.Printf("pgqueue: failed to mark task %s as done: %v", id, err)
 	}
 }
 
+// handleFailure records a task failure and schedules retries if applicable.
+//
+// Tasks exceeding their retry limit are marked as permanently failed.
+// Otherwise, exponential backoff with jitter is applied.
 func (s *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
 	if task.Attempts >= task.MaxRetries {
 		s.db.ExecContext(ctx, `
 			UPDATE tasks
-				SET status = $3,
-				last_error = $1
-			WHERE task_id = $2`, jobErr.Error(), task.ID, TaskFailed)
+			SET status = $3,
+			    last_error = $1
+			WHERE task_id = $2
+		`, jobErr.Error(), task.ID, TaskFailed)
 		return
 	}
 
-	// Exponential backoff with Jitter to prevent "Thundering Herd"
 	backoff := time.Duration(1<<task.Attempts) * time.Second
 	jitter := rand.N(backoff)
 	totalWait := (backoff / 2) + jitter
 	isTest := os.Getenv("GO_ENV") == "test"
 
-	query := `
-        UPDATE tasks
-        SET status = $4,
-            next_run_at = NOW() + (
-                $1 * CASE WHEN $5 = true THEN INTERVAL '1 millisecond' 
-                          ELSE INTERVAL '1 second' END
-            ),
-            last_error = $2 
-        WHERE task_id = $3`
-
-	_, err := s.db.ExecContext(ctx, query, totalWait.Seconds(), jobErr.Error(), task.ID, TaskPending, isTest)
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = $4,
+		    next_run_at = NOW() + (
+		        $1 * CASE
+		            WHEN $5 = true THEN INTERVAL '1 millisecond'
+		            ELSE INTERVAL '1 second'
+		        END
+		    ),
+		    last_error = $2
+		WHERE task_id = $3
+	`, totalWait.Seconds(), jobErr.Error(), task.ID, TaskPending, isTest)
 	if err != nil {
-		log.Printf("an error occured %v\n", err)
+		slog.Error("pgqueue: failed to reschedule task", "taskID", task.ID, "error", err)
 	}
 }
