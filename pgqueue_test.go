@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -223,4 +224,50 @@ func TestRescueStuckTasks(t *testing.T) {
 	if !lastError.Valid || lastError.String != "detected stuck task; resetting" {
 		t.Errorf("Expected rescue message in last_error, got: %v", lastError)
 	}
+}
+
+// BenchmarkEnqueue measures how fast we can push tasks into PostgreSQL
+func BenchmarkEnqueue(b *testing.B) {
+	db, _ := setupTestDB(nil)
+	defer db.Close()
+	client, _ := NewClient(db)
+	defer client.Close()
+
+	ctx := context.Background()
+	payload := map[string]string{"data": "bench"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = client.Enqueue(ctx, "bench:task", payload)
+	}
+}
+
+// BenchmarkWorkerThroughput measures how fast workers can drain the queue
+func BenchmarkWorkerThroughput(b *testing.B) {
+	db, _ := setupTestDB(nil)
+	defer db.Close()
+
+	client, _ := NewClient(db)
+	ctx := context.Background()
+	for i := 0; b.Loop(); i++ {
+		_ = client.Enqueue(ctx, "bench:process", i)
+	}
+	client.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(b.N)
+	mux := NewServeMux()
+	mux.HandleFunc("bench:process", func(ctx context.Context, t *Task) error {
+		wg.Done()
+		return nil
+	})
+
+	server := NewServer(db, os.Getenv("TEST_DB_DSN"), 10, mux)
+	_ = server.Start()
+
+	b.ResetTimer()
+	wg.Wait()
+	b.StopTimer()
+
+	server.Shutdown(ctx)
 }

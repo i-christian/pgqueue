@@ -3,7 +3,7 @@ DB_IMAGE=postgres:18-alpine
 HOST_PORT=5433
 DB_DSN="postgres://user:pass@localhost:$(HOST_PORT)/task_queue_test?sslmode=disable"
 
-.PHONY: db-up db-down test test-clean build-dash
+.PHONY: db-up db-down test test-clean bench
 
 # Spin up the test database in a docker container
 db-up:
@@ -32,11 +32,12 @@ test-full: db-down db-up
 	$(MAKE) db-down; \
 	exit $$EXIT_CODE
 
-# Build the dashboard CLI
-build-dash:
-	go build -o ./bin/pgqueue-dash ./cmd/pgqueue-dash
-
 # Clean build artifacts
 clean:
 	rm -rf ./bin
 
+# Run benchmarks
+bench: db-down db-up
+	@echo "Running performance benchmarks..."
+	@TEST_DB_DSN=$(DB_DSN) go test -bench=. -benchmem ./...
+	@$(MAKE) db-down
