@@ -8,10 +8,6 @@
 
 It is designed to be **simple**, **safe**, and **easy to reason about**, using only PostgreSQL and standard SQL.
 
-> ⚠️ **Project status**
-> This is primarily a **learning project**, which I have created to explore how background job queues work internally.
-> That aside, pgqueue aims to follow solid, production-style patterns and is suitable for real-world experimentation and small-to-medium workloads.
-
 ---
 
 ## Features
@@ -283,6 +279,27 @@ A complete, runnable example demonstrating:
 
 ---
 
+## 🖥️ CLI Dashboard
+
+**pgqueue-dash** is a high-performance Terminal User Interface (TUI) for monitoring your queue in real-time. It allows you to view processed tasks, inspect payloads, and retry failed tasks manually.
+
+**Installation:**
+
+```bash
+go install github.com/i-christian/pgqueue/cmd/pgqueue-dash@latest
+```
+
+**Usage:**
+
+```bash
+pgqueue-dash --dsn="postgres://user:pass@localhost:5432/dbname"
+
+```
+
+👉 **[View Full Dashboard Documentation](https://github.com/i-christian/pgqueue/tree/main/cmd/pgqueue-dash/README.md)**
+
+---
+
 ## Guarantees
 
 pgqueue provides the following guarantees:
@@ -290,7 +307,7 @@ pgqueue provides the following guarantees:
 ✔ **At-least-once execution**
 ✔ **No concurrent double-processing of the same task**
 ✔ **Safe concurrency across multiple workers and processes**
-✔ **Crash resilience** (workers can die at any point)
+✔ **Crash resilience**
 
 ---
 

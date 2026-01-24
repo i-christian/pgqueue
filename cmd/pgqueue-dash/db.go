@@ -26,7 +26,7 @@ type (
 	}
 )
 
-// fetchData retrieves metrics and tasks with pagination support
+// fetchData retrieves metrics
 func (m model) fetchData() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -187,9 +187,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if !m.showDetail && !m.searching {
-		if m.activeTab == tabTasks {
+		switch m.activeTab {
+		case tabTasks:
 			m.taskTable, cmd = m.taskTable.Update(msg)
-		} else if m.activeTab == tabCron {
+		case tabCron:
 			m.cronTable, cmd = m.cronTable.Update(msg)
 		}
 	}
