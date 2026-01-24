@@ -115,11 +115,38 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) workerLoop(ctx context.Context, wakeUp <-chan struct{}) {
+	time.Sleep(time.Duration(rand.N(2000)) * time.Millisecond)
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	var errorCount int
+
 	for {
-		if s.processBatch(ctx, s.handler) {
+		count, err := s.processBatch(ctx, s.handler)
+		if err != nil {
+			errorCount++
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			
+			if errorCount == 1 || errorCount%10 == 0 {
+				slog.Error("Worker encountered error", "err", err, "attempt", errorCount)
+			}
+
+			sleepDuration := time.Duration(100*(1<<min(errorCount, 5))) * time.Millisecond
+			
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(sleepDuration):
+				continue 
+			}
+		}
+
+		errorCount = 0
+
+		if count > 0 {
 			continue
 		}
 
@@ -127,27 +154,26 @@ func (s *Server) workerLoop(ctx context.Context, wakeUp <-chan struct{}) {
 		case <-ctx.Done():
 			return
 		case <-wakeUp:
-			s.processBatch(ctx, s.handler)
+			// Listener says new task arrived. Loop around to fetch it.
 		case <-ticker.C:
-			s.processBatch(ctx, s.handler)
+			// Periodic safety check.
 		}
 	}
 }
 
-func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) bool {
+func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) (int, error) {
 	if ctx.Err() != nil {
-		return false
+		return 0, ctx.Err()
 	}
 
 	tasks, err := s.fetchBatch(ctx, s.batchSize)
 	if err != nil {
-		slog.Error("Batch fetch error", "error", err)
-		time.Sleep(1 * time.Second)
-		return false
+		return 0, err
 	}
 
-	if len(tasks) == 0 {
-		return false
+	count := len(tasks)
+	if count == 0 {
+		return 0, nil
 	}
 
 	for _, task := range tasks {
@@ -159,15 +185,15 @@ func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) bool {
 		}
 	}
 
-	return true
+	return count, nil
 }
 
 func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() 
 
 	rows, err := tx.QueryContext(ctx, `
 		UPDATE tasks
@@ -185,7 +211,7 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 		RETURNING task_id, task_type, payload, attempts, max_retries, priority
 	`, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query fetch: %w", err)
 	}
 	defer rows.Close()
 
@@ -194,13 +220,21 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 		var t Task
 		var payload []byte
 		if err := rows.Scan(&t.ID, &t.Type, &payload, &t.Attempts, &t.MaxRetries, &t.Priority); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan task: %w", err)
 		}
 		t.Payload = payload
 		tasks = append(tasks, t)
 	}
 
-	return tasks, tx.Commit()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+
+	return tasks, nil
 }
 
 func (s *Server) markDone(ctx context.Context, id uuid.UUID) {
