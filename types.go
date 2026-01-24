@@ -71,6 +71,7 @@ type Server struct {
 	db          *sql.DB
 	handler     WorkerHandler
 	concurrency int
+	batchSize   uint16
 
 	running      atomic.Bool
 	ctx          context.Context

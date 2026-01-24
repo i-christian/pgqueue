@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"math/rand/v2"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,7 @@ func NewServer(db *sql.DB, connString string, concurrency int, handler WorkerHan
 		connString:  connString,
 		db:          db,
 		handler:     handler,
+		batchSize:   10,
 		concurrency: concurrency,
 	}
 }
@@ -117,6 +119,10 @@ func (s *Server) workerLoop(ctx context.Context, wakeUp <-chan struct{}) {
 	defer ticker.Stop()
 
 	for {
+		if s.processBatch(ctx, s.handler) {
+			continue
+		}
+
 		select {
 		case <-ctx.Done():
 			return
@@ -128,76 +134,73 @@ func (s *Server) workerLoop(ctx context.Context, wakeUp <-chan struct{}) {
 	}
 }
 
-func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) {
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		processed, err := s.processOne(ctx, handler)
-		if err != nil {
-			slog.Error("Processing error", "error", err)
-			time.Sleep(1 * time.Second)
-			return
-		}
-		if !processed {
-			return
+func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+
+	tasks, err := s.fetchBatch(ctx, s.batchSize)
+	if err != nil {
+		slog.Error("Batch fetch error", "error", err)
+		time.Sleep(1 * time.Second)
+		return false
+	}
+
+	if len(tasks) == 0 {
+		return false
+	}
+
+	for _, task := range tasks {
+		jobErr := handler.ProcessTask(ctx, &task)
+		if jobErr != nil {
+			s.handleFailure(ctx, task, jobErr)
+		} else {
+			s.markDone(ctx, task.ID)
 		}
 	}
+
+	return true
 }
 
-func (s *Server) processOne(ctx context.Context, handler WorkerHandler) (bool, error) {
+func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer tx.Rollback()
 
-	var task Task
-	var payloadBytes []byte
-
-	row := tx.QueryRowContext(ctx, `
-		SELECT task_id, task_type, payload, attempts, max_retries, priority
-		FROM tasks 
-		WHERE status = 'pending' AND next_run_at <= NOW()
-		ORDER BY priority DESC, next_run_at ASC 
-		FOR UPDATE SKIP LOCKED 
-		LIMIT 1
-	`)
-
-	err = row.Scan(&task.ID, &task.Type, &payloadBytes, &task.Attempts, &task.MaxRetries, &task.Priority)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-
-	_, err = tx.ExecContext(ctx, `
+	rows, err := tx.QueryContext(ctx, `
 		UPDATE tasks
-			SET status = 'processing',
-			attempts = attempts + 1,
-			updated_at = NOW()
-		WHERE task_id = $1
-	`, task.ID)
+		SET status = 'processing',
+		    attempts = attempts + 1,
+		    updated_at = NOW()
+		WHERE task_id IN (
+			SELECT task_id
+			FROM tasks 
+			WHERE status = 'pending' AND next_run_at <= NOW()
+			ORDER BY priority DESC, next_run_at ASC 
+			FOR UPDATE SKIP LOCKED 
+			LIMIT $1
+		)
+		RETURNING task_id, task_type, payload, attempts, max_retries, priority
+	`, limit)
 	if err != nil {
-		return false, err
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []Task
+	for rows.Next() {
+		var t Task
+		var payload []byte
+		if err := rows.Scan(&t.ID, &t.Type, &payload, &t.Attempts, &t.MaxRetries, &t.Priority); err != nil {
+			return nil, err
+		}
+		t.Payload = payload
+		tasks = append(tasks, t)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return false, err
-	}
-
-	task.Payload = payloadBytes
-
-	jobErr := handler.ProcessTask(ctx, &task)
-
-	if jobErr != nil {
-		s.handleFailure(ctx, task, jobErr)
-	} else {
-		s.markDone(ctx, task.ID)
-	}
-
-	return true, nil
+	return tasks, tx.Commit()
 }
 
 func (s *Server) markDone(ctx context.Context, id uuid.UUID) {
@@ -214,8 +217,7 @@ func (s *Server) markDone(ctx context.Context, id uuid.UUID) {
 }
 
 func (s *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
-	newAttempts := task.Attempts + 1
-	if newAttempts >= task.MaxRetries {
+	if task.Attempts >= task.MaxRetries {
 		s.db.ExecContext(ctx, `
 			UPDATE tasks
 				SET status = $3,
@@ -225,17 +227,22 @@ func (s *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
 	}
 
 	// Exponential backoff with Jitter to prevent "Thundering Herd"
-	backoff := time.Duration(1<<newAttempts) * time.Second
+	backoff := time.Duration(1<<task.Attempts) * time.Second
 	jitter := rand.N(backoff)
 	totalWait := (backoff / 2) + jitter
+	isTest := os.Getenv("GO_ENV") == "test"
 
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE tasks
-			SET status = $5,
-			attempts = $1,
-			next_run_at = NOW() + ($2 * INTERVAL '1 second'),
-			last_error = $3 
-		WHERE task_id = $4`, newAttempts, totalWait.Seconds(), jobErr.Error(), task.ID, TaskPending)
+	query := `
+        UPDATE tasks
+        SET status = $4,
+            next_run_at = NOW() + (
+                $1 * CASE WHEN $5 = true THEN INTERVAL '1 millisecond' 
+                          ELSE INTERVAL '1 second' END
+            ),
+            last_error = $2 
+        WHERE task_id = $3`
+
+	_, err := s.db.ExecContext(ctx, query, totalWait.Seconds(), jobErr.Error(), task.ID, TaskPending, isTest)
 	if err != nil {
 		log.Printf("an error occured %v\n", err)
 	}

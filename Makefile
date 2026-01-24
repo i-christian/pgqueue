@@ -22,12 +22,12 @@ db-down:
 
 # Run all tests with a race detector
 test:
-	TEST_DB_DSN=$(DB_DSN) go test -v -race ./...
+	GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./...
 
 # Start DB, run tests, and clean up
 test-full: db-down db-up
 	@echo "Running integration tests..."
-	@TEST_DB_DSN=$(DB_DSN) go test -v -race ./...; \
+	@GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./...; \
 	EXIT_CODE=$$?; \
 	$(MAKE) db-down; \
 	exit $$EXIT_CODE
@@ -39,5 +39,5 @@ clean:
 # Run benchmarks
 bench: db-down db-up
 	@echo "Running performance benchmarks..."
-	@TEST_DB_DSN=$(DB_DSN) go test -bench=. -benchmem ./...
+	@O_ENV=test TEST_DB_DSN=$(DB_DSN) go test -bench=. -benchmem ./...
 	@$(MAKE) db-down

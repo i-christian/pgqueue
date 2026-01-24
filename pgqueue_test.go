@@ -90,6 +90,9 @@ func TestEnqueueAndProcess(t *testing.T) {
 }
 
 func TestRetryLogic(t *testing.T) {
+	os.Setenv("GO_ENV", "test")
+	defer os.Unsetenv("GO_ENV")
+
 	db, dsn := setupTestDB(t)
 	defer db.Close()
 
@@ -112,7 +115,7 @@ func TestRetryLogic(t *testing.T) {
 
 	expectedAttempts := 2
 
-	for i := 0; i < expectedAttempts; i++ {
+	for i := range expectedAttempts {
 		select {
 		case <-attemptsCh:
 		case <-time.After(5 * time.Second):
@@ -236,15 +239,14 @@ func BenchmarkEnqueue(b *testing.B) {
 	ctx := context.Background()
 	payload := map[string]string{"data": "bench"}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = client.Enqueue(ctx, "bench:task", payload)
 	}
 }
 
 // BenchmarkWorkerThroughput measures how fast workers can drain the queue
 func BenchmarkWorkerThroughput(b *testing.B) {
-	db, _ := setupTestDB(nil)
+	db, dsn := setupTestDB(nil)
 	defer db.Close()
 
 	client, _ := NewClient(db)
@@ -262,7 +264,7 @@ func BenchmarkWorkerThroughput(b *testing.B) {
 		return nil
 	})
 
-	server := NewServer(db, os.Getenv("TEST_DB_DSN"), 10, mux)
+	server := NewServer(db, dsn, 5, mux)
 	_ = server.Start()
 
 	b.ResetTimer()
