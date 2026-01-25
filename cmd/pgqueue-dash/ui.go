@@ -2,134 +2,249 @@ package main
 
 import (
 	"fmt"
+	"math"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
 var (
-	subtleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	pageStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
+	cPrimary   = lipgloss.Color("62")  // Indigo/Purple
+	cSecondary = lipgloss.Color("39")  // Deep Sky Blue
+	cSuccess   = lipgloss.Color("42")  // Spring Green
+	cWarning   = lipgloss.Color("214") // Orange
+	cError     = lipgloss.Color("196") // Red
+	cSubtle    = lipgloss.Color("241") // Grey
 
-	headerStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("62")).
-			Foreground(lipgloss.Color("230")).
-			Padding(0, 1).
-			Bold(true)
-
-	statBoxStyle = lipgloss.NewStyle().
-			Padding(0, 1).
-			Border(lipgloss.NormalBorder(), false, true, false, false).
-			BorderForeground(lipgloss.Color("240"))
-
-	activeTabStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(lipgloss.Color("62")).
-			Foreground(lipgloss.Color("62")).
-			Bold(true).
-			Padding(0, 2)
-
-	inactiveTabStyle = lipgloss.NewStyle().Padding(0, 2).Foreground(lipgloss.Color("244"))
-
-	popupStyle = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(lipgloss.Color("62")).
-			Padding(1).
+	stylePopup = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(cPrimary).
+			Padding(1, 1).
 			Background(lipgloss.Color("234"))
+
+	styleTabActive = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(cPrimary).
+			Foreground(cPrimary).
+			Bold(true).
+			Padding(0, 1)
+
+	styleTabInactive = lipgloss.NewStyle().
+				Padding(0, 1).
+				Foreground(cSubtle)
 )
 
-// View renders the final string based on the current model state.
 func (m model) View() string {
-	statusText := successStyle.Render("CONNECTED")
-	topBar := lipgloss.JoinHorizontal(lipgloss.Center,
-		headerStyle.Render(" PGQUEUE CONSOLE "),
-		statBoxStyle.Render(fmt.Sprintf("STATUS: %s", statusText)),
-		statBoxStyle.Render(fmt.Sprintf("WKR CONNS: %d", m.activeConns)),
+	header := lipgloss.JoinHorizontal(lipgloss.Center,
+		lipgloss.NewStyle().Foreground(cPrimary).Bold(true).Render("⚡ PGQUEUE"),
+		lipgloss.NewStyle().Foreground(cSubtle).MarginLeft(2).Render("|"),
+		lipgloss.NewStyle().Foreground(cSuccess).MarginLeft(2).Render("● Connected"),
+		lipgloss.NewStyle().Foreground(cSubtle).MarginLeft(1).Render(fmt.Sprintf("(%d active)", m.activeConns)),
 	)
 
-	tabs := []string{
-		inactiveTabStyle.Render("OVERVIEW"),
-		inactiveTabStyle.Render("TASK LIST"),
-		inactiveTabStyle.Render("CRON JOBS"),
-	}
-
-	switch m.activeTab {
-	case tabOverview:
-		tabs[0] = activeTabStyle.Render("OVERVIEW")
-	case tabTasks:
-		tabs[1] = activeTabStyle.Render("TASK LIST")
-	default:
-		tabs[2] = activeTabStyle.Render("CRON JOBS")
-	}
-	tabRow := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	tabs := m.renderTabs()
 
 	var content string
 	switch m.activeTab {
 	case tabOverview:
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			lipgloss.NewStyle().Foreground(lipgloss.Color("62")).Bold(true).Render("\n SYSTEM METRICS"),
-			m.overviewTable.View(),
-		)
+		content = m.renderOverview()
 	case tabTasks:
-		pagination := pageStyle.Render(fmt.Sprintf(" Task Page %d/%d • [n]ext/[p]rev • [/] search", m.taskPage+1, (m.totalTasks/pageSize)+1))
-		content = lipgloss.JoinVertical(lipgloss.Left, m.searchInput.View(), "\n", m.taskTable.View(), "\n", pagination)
+		content = m.renderTaskView()
 	case tabCron:
-		pagination := pageStyle.Render(fmt.Sprintf(" Cron Page %d/%d • [n]ext/[p]rev", m.cronPage+1, (m.totalCronJobs/pageSize)+1))
-		content = lipgloss.JoinVertical(lipgloss.Left, "\n", m.cronTable.View(), "\n", pagination)
+		content = m.renderCronView()
 	}
 
-	var statusLine string
-	if m.err != nil {
-		statusLine = lipgloss.NewStyle().
-			Background(lipgloss.Color("9")).
-			Foreground(lipgloss.Color("15")).
-			Width(100).
-			Render(fmt.Sprintf(" ⚠️  DATABASE ERROR: %v", m.err))
-	} else {
-		statusLine = subtleStyle.Render(fmt.Sprintf(" [Tab] Tab • [/] Filter • [Enter] Detail • [R] Retry • [Q] Quit | Last Sync: %s", m.lastUpdated.Format("15:04:05")))
-	}
+	footer := m.renderFooter()
 
-	view := lipgloss.JoinVertical(lipgloss.Left, topBar, "\n", tabRow, "\n", content, statusLine)
+	base := lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Padding(0, 1).Render(header),
+		lipgloss.NewStyle().Padding(0, 1).Render(tabs),
+		lipgloss.NewStyle().Padding(0, 2).Render(content),
+		footer,
+	)
 
 	if m.confirming {
-		prompt := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("196")).
-			Padding(1, 2).
-			Background(lipgloss.Color("234")).
-			Render("⚠️  RETRY TASK?\n\nThis will re-queue the task for immediate execution.\n\n[y] Confirm  •  [n] Cancel")
-
-		return lipgloss.Place(100, 40, lipgloss.Center, lipgloss.Center, prompt)
+		return m.overlay(m.renderConfirmation())
 	}
-
 	if m.showDetail {
-		return m.renderDetailModal()
+		return m.overlay(m.renderDetailModal())
 	}
-	return view
+
+	return base
 }
 
-// renderDetailModal constructs a structured view for task introspection.
-// It uses a viewport for the JSON payload to allow scrolling for large data.
-func (m model) renderDetailModal() string {
-	selected := m.taskTable.SelectedRow()
-	if len(selected) == 0 {
-		return ""
+func (m model) renderTabs() string {
+	var t1, t2, t3 string
+	if m.activeTab == tabOverview {
+		t1 = styleTabActive.Render("OVERVIEW")
+	} else {
+		t1 = styleTabInactive.Render("OVERVIEW")
+	}
+	if m.activeTab == tabTasks {
+		t2 = styleTabActive.Render("TASKS")
+	} else {
+		t2 = styleTabInactive.Render("TASKS")
+	}
+	if m.activeTab == tabCron {
+		t3 = styleTabActive.Render("CRON JOBS")
+	} else {
+		t3 = styleTabInactive.Render("CRON JOBS")
 	}
 
-	header := headerStyle.Render(fmt.Sprintf(" 🔍 TASK DETAILS: %s ", selected[0]))
+	row := lipgloss.JoinHorizontal(lipgloss.Bottom, t1, t2, t3)
+	return lipgloss.NewStyle().MarginTop(1).Border(lipgloss.NormalBorder(), false, false, true, false).BorderForeground(cSubtle).Width(m.width - 4).Render(row)
+}
 
-	modalContent := lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		"\n",
-		m.detailView.View(),
-		"\n",
-		subtleStyle.Render(" [ESC] Back • [↑/↓] Scroll Payload "),
+// renderOverview replaces the grid with a System Monitor style layout
+func (m model) renderOverview() string {
+	label := lipgloss.NewStyle().Foreground(cSubtle).Width(14).Render
+	val := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true).Render
+
+	metrics := []string{
+		fmt.Sprintf("%s %s", label("Total Tasks:"), val(fmt.Sprintf("%d", m.stats.Total))),
+		fmt.Sprintf("%s %s", label("Pending:"), val(fmt.Sprintf("%d", m.stats.Pending))),
+		fmt.Sprintf("%s %s", label("Processing:"), lipgloss.NewStyle().Foreground(cSecondary).Render(fmt.Sprintf("%d", m.stats.Processing))),
+		fmt.Sprintf("%s %s", label("Retrying:"), lipgloss.NewStyle().Foreground(cWarning).Render(fmt.Sprintf("%d", m.stats.Retry))),
+		"",
+		fmt.Sprintf("%s %s", label("Failed:"), lipgloss.NewStyle().Foreground(cError).Render(fmt.Sprintf("%d", m.stats.Failed))),
+		fmt.Sprintf("%s %s", label("Completed:"), lipgloss.NewStyle().Foreground(cSuccess).Render(fmt.Sprintf("%d", m.stats.Completed))),
+	}
+	leftCol := lipgloss.JoinVertical(lipgloss.Left, metrics...)
+
+	total := float64(m.stats.Total)
+	if total == 0 {
+		total = 1
+	}
+
+	barWidth := 40
+	makeBar := func(count int, color lipgloss.Color) string {
+		pct := float64(count) / total
+		w := int(pct * float64(barWidth))
+		if w == 0 && count > 0 {
+			w = 1
+		}
+		filled := strings.Repeat("█", w)
+		empty := strings.Repeat("░", barWidth-w)
+		return lipgloss.NewStyle().Foreground(color).Render(filled) + lipgloss.NewStyle().Foreground(cSubtle).Render(empty)
+	}
+
+	rightCol := lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Bold(true).Render("Status Distribution"),
+		"",
+		"Success Rate "+makeBar(m.stats.Completed, cSuccess)+fmt.Sprintf(" %.1f%%", (float64(m.stats.Completed)/total)*100),
+		"Failure Rate "+makeBar(m.stats.Failed, cError)+fmt.Sprintf(" %.1f%%", (float64(m.stats.Failed)/total)*100),
+		"Pending Load "+makeBar(m.stats.Pending, cSubtle)+fmt.Sprintf(" %.1f%%", (float64(m.stats.Pending)/total)*100),
 	)
 
-	return lipgloss.Place(
-		50, 20,
-		lipgloss.Center, lipgloss.Center,
-		popupStyle.Render(modalContent),
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Width(35).Render(leftCol),
+		lipgloss.NewStyle().MarginLeft(4).Render(rightCol),
 	)
+}
+
+func (m model) renderTaskView() string {
+	view := m.taskTable.View()
+
+	if m.searching || m.searchInput.Value() != "" {
+		sBar := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(cSubtle).
+			Render("🔍 " + m.searchInput.View())
+		return lipgloss.JoinVertical(lipgloss.Left, sBar, view)
+	}
+
+	totalPages := int(math.Ceil(float64(m.totalTasks) / float64(defaultPageSize)))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	pg := lipgloss.NewStyle().Foreground(cSubtle).MarginTop(1).Render(
+		fmt.Sprintf("Page %d of %d  •  %d Total Tasks", m.taskPage+1, totalPages, m.totalTasks),
+	)
+	return lipgloss.JoinVertical(lipgloss.Left, view, pg)
+}
+
+func (m model) renderCronView() string {
+	view := m.cronTable.View()
+
+	totalPages := int(math.Ceil(float64(m.totalCronJobs) / float64(defaultPageSize)))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	pg := lipgloss.NewStyle().Foreground(cSubtle).MarginTop(1).Render(
+		fmt.Sprintf("Page %d of %d  •  %d Cron Jobs", m.cronPage+1, totalPages, m.totalCronJobs),
+	)
+	return lipgloss.JoinVertical(lipgloss.Left, view, pg)
+}
+
+func (m model) renderFooter() string {
+	var helps []string
+
+	if m.showDetail {
+		helps = []string{"ESC: Close", "↑/↓: Scroll"}
+	} else if m.searching {
+		helps = []string{"Enter: Confirm", "ESC: Cancel"}
+	} else {
+		helps = []string{"Tab: Switch View", "Q: Quit"}
+
+		switch m.activeTab {
+		case tabTasks:
+			helps = append(helps, "←/→: Page", "/: Filter", "Enter: Details", "R: Retry")
+		case tabCron:
+			helps = append(helps, "←/→: Page", "Enter: Details")
+		}
+	}
+
+	status := strings.Join(helps, " • ")
+
+	return lipgloss.NewStyle().
+		Foreground(cSubtle).
+		PaddingTop(1).
+		PaddingLeft(1).
+		Render(status)
+}
+
+func (m model) renderDetailModal() string {
+	w := int(math.Min(float64(m.width-10), 80))
+	h := int(math.Min(float64(m.height-6), 30))
+
+	header := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(cPrimary).
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(cSubtle).
+		Width(w - 4).
+		Render(m.detailTitle)
+
+	m.detailView.Width = w - 4
+	m.detailView.Height = h - 6
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+		stylePopup.Width(w).Height(h).Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				header,
+				m.detailView.View(),
+				lipgloss.NewStyle().Foreground(cSubtle).MarginTop(1).Render("↑/↓ Scroll • ESC Close"),
+			),
+		),
+	)
+}
+
+func (m model) renderConfirmation() string {
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+		stylePopup.Render(lipgloss.JoinVertical(lipgloss.Center,
+			lipgloss.NewStyle().Foreground(cWarning).Bold(true).Render("⚠️  RETRY TASK?"),
+			"\nThis will reset status to 'pending'.",
+			"\n",
+			lipgloss.JoinHorizontal(lipgloss.Center,
+				lipgloss.NewStyle().Foreground(cSuccess).MarginRight(2).Render("[Y] Yes"),
+				lipgloss.NewStyle().Foreground(cError).Render("[N] No"),
+			),
+		)),
+	)
+}
+
+func (m model) overlay(content string) string {
+	return content
 }

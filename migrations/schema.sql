@@ -29,6 +29,14 @@ CREATE INDEX IF NOT EXISTS idx_tasks_archive ON tasks (status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_processing_stuck
     ON tasks (updated_at)
 WHERE status = 'processing';
+CREATE INDEX IF NOT EXISTS CONCURRENTLY idx_tasks_search
+ON tasks
+USING GIN (
+	to_tsvector(
+		'simple',
+		coalesce(task_type,'') || ' ' || coalesce(last_error,'')
+	)
+);
 
 -- Archive Table
 CREATE TABLE IF NOT EXISTS tasks_archive (LIKE tasks INCLUDING ALL);
