@@ -20,7 +20,6 @@ It is designed to be **simple**, **safe**, and **easy to reason about**, using o
 * 🧠 Deduplication support
 * ⏰ Cron jobs (run once across many servers)
 * 📊 Queue metrics & stats
-* 🪵 Structured logging (`slog` middleware)
 * 💥 Crash-resilient, at-least-once delivery
 
 ---
@@ -193,12 +192,6 @@ task:report:user:123
 task:email:user:UUID
 ```
 
-### Why this matters
-
-* Routing is based on task type or prefix
-* Metrics are keyed by task type
-* Unbounded types can cause **unbounded memory growth**
-
 **Rule of thumb:** Use task **categories**, not per-entity identifiers.
 
 ---
@@ -348,12 +341,11 @@ go test -v ./...
 make bench
 ```
 
-Benchmarks run against a fresh PostgreSQL container and are intended for local performance exploration only.
+Benchmarks can be run against a fresh PostgreSQL container and are intended for local performance exploration only.
 
 ---
 
 ## Contributing
-
 Contributions are welcome! Here’s how you can help:
 
 * 🐛 **Report bugs** by opening issues
