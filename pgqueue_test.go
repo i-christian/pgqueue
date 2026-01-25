@@ -229,7 +229,7 @@ func TestRescueStuckTasks(t *testing.T) {
 	}
 }
 
-// BenchmarkEnqueue measures how fast we can push tasks into PostgreSQL
+// BenchmarkEnqueue measures how fast we can push tasks into the queue
 func BenchmarkEnqueue(b *testing.B) {
 	db, _ := setupTestDB(nil)
 	defer db.Close()

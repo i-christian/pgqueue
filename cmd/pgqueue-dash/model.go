@@ -181,7 +181,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.totalTasks = msg.totalTasks
 		}
 	case string:
-		m.detailView = viewport.New(85, 20)
+		m.detailView = viewport.New(50, 20)
 		m.detailView.SetContent(msg)
 		m.showDetail = true
 	}
