@@ -1,8 +1,6 @@
 # pgqueue-dash 🐘
 
-A production-ready, high-performance Terminal User Interface (TUI) for monitoring and operating the `pgqueue` task queue in PostgreSQL.
-
-Built with **Golang**, **Bubble Tea**, **Bubbles**, and **Lip Gloss** for fast, keyboard-driven workflows.
+A high performance Terminal User Interface (TUI) app for monitoring the `pgqueue` task queue. Its been built with **Golang**, **Bubble Tea**, **Bubbles**, and **Lip Gloss** to be a fast, memory efficient and lightweight dashboard.
 
 ---
 
