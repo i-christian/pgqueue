@@ -10,7 +10,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/lib/pq"
+	"github.com/i-christian/pgqueue/internal/pkg/errutil"
+	"github.com/i-christian/pgqueue/internal/pkg/stringutils"
 	"github.com/robfig/cron/v3"
 )
 
@@ -91,10 +92,17 @@ func (c *Client) Enqueue(ctx context.Context, task TaskType, payload any, opts .
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	query := `INSERT INTO tasks (task_type, priority, max_retries, payload, next_run_at, deduplication_key) VALUES ($1, $2, $3, $4, $5, $6)`
+	taskID, createdAt, err := stringutils.NewUUIDv7()
+	if err != nil {
+		return fmt.Errorf("failed to generate task ID: %w", err)
+	}
 
-	var args []any
-	args = append(args, task, cfg.priority, cfg.maxRetries, payloadBytes)
+	query := `
+		INSERT INTO tasks (
+			task_id, created_at, task_type, priority, 
+			max_retries, payload, next_run_at, deduplication_key
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`
 
 	nextRunAt := sql.NullTime{Time: time.Now(), Valid: true}
 	if cfg.processAt != nil {
@@ -106,13 +114,15 @@ func (c *Client) Enqueue(ctx context.Context, task TaskType, payload any, opts .
 		dedupKey = sql.NullString{String: *cfg.dedupKey, Valid: true}
 	}
 
-	args = append(args, nextRunAt, dedupKey)
-
-	_, err = c.db.ExecContext(ctx, query, args...)
+	_, err = c.db.ExecContext(ctx, query,
+		taskID, createdAt, task, cfg.priority,
+		cfg.maxRetries, payloadBytes, nextRunAt, dedupKey,
+	)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+		if errutil.IsUniqueViolation(err) {
 			return nil // Deduplication hit
 		}
+
 		return err
 	}
 	return nil

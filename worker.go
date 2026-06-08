@@ -11,7 +11,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
@@ -215,7 +214,7 @@ func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) (int, 
 		if jobErr := handler.ProcessTask(ctx, &task); jobErr != nil {
 			s.handleFailure(ctx, task, jobErr)
 		} else {
-			s.markDone(ctx, task.ID)
+			s.markDone(ctx, task)
 		}
 	}
 
@@ -238,8 +237,8 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 		SET status = 'processing',
 		    attempts = attempts + 1,
 		    updated_at = NOW()
-		WHERE task_id IN (
-			SELECT task_id
+		WHERE (task_id, created_at) IN (
+			SELECT task_id, created_at
 			FROM tasks
 			WHERE status = 'pending'
 			  AND next_run_at <= NOW()
@@ -247,7 +246,7 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
 		)
-		RETURNING task_id, task_type, payload, attempts, max_retries, priority
+		RETURNING task_id, created_at, task_type, payload, attempts, max_retries, priority
 	`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query fetch: %w", err)
@@ -260,6 +259,7 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 		var payload []byte
 		if err := rows.Scan(
 			&t.ID,
+			&t.CreatedAt,
 			&t.Type,
 			&payload,
 			&t.Attempts,
@@ -284,15 +284,15 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 }
 
 // markDone marks a task as successfully completed.
-func (s *Server) markDone(ctx context.Context, id uuid.UUID) {
+func (s *Server) markDone(ctx context.Context, task Task) {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE tasks
-		SET status = $2,
+		SET status = $3,
 		    updated_at = NOW()
-		WHERE task_id = $1
-	`, id, TaskDone)
+		WHERE task_id = $1 AND created_at = $2
+	`, task.ID, task.CreatedAt, TaskDone)
 	if err != nil {
-		log.Printf("pgqueue: failed to mark task %s as done: %v", id, err)
+		log.Printf("pgqueue: failed to mark task %s as done: %v", task.ID, err)
 	}
 }
 
@@ -304,10 +304,9 @@ func (s *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
 	if task.Attempts >= task.MaxRetries {
 		s.db.ExecContext(ctx, `
 			UPDATE tasks
-			SET status = $3,
-			    last_error = $1
-			WHERE task_id = $2
-		`, jobErr.Error(), task.ID, TaskFailed)
+			SET status = $4, last_error = $1
+			WHERE task_id = $2 AND created_at = $3
+		`, jobErr.Error(), task.ID, task.CreatedAt, TaskFailed)
 		return
 	}
 
@@ -318,16 +317,16 @@ func (s *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
 
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE tasks
-		SET status = $4,
+		SET status = $5,
 		    next_run_at = NOW() + (
 		        $1 * CASE
-		            WHEN $5 = true THEN INTERVAL '1 millisecond'
+		            WHEN $6 = true THEN INTERVAL '1 millisecond'
 		            ELSE INTERVAL '1 second'
 		        END
 		    ),
 		    last_error = $2
-		WHERE task_id = $3
-	`, totalWait.Seconds(), jobErr.Error(), task.ID, TaskPending, isTest)
+		WHERE task_id = $3 AND created_at = $4
+	`, totalWait.Seconds(), jobErr.Error(), task.ID, task.CreatedAt, TaskPending, isTest)
 	if err != nil {
 		slog.Error("pgqueue: failed to reschedule task", "taskID", task.ID, "error", err)
 	}
