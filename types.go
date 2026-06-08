@@ -117,10 +117,10 @@ type queueConfig struct {
 	rescueInterval   time.Duration
 	rescueVisibility time.Duration
 
-	cleanupEnabled   bool
-	cleanupStrategy  CleanupStrategy
-	cleanupInterval  time.Duration
-	cleanupRetention time.Duration
+	cleanupEnabled         bool
+	cleanupStrategy        CleanupStrategy
+	cleanupInterval        time.Duration
+	cleanupRetentionMonths int
 }
 
 // QueueOption is a function that modifies the queue configuration.

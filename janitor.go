@@ -114,18 +114,28 @@ func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration, db 
 
 // runCleanup executes the cleanup strategy defined in configuration
 func (q *Queue) runCleanup(ctx context.Context, db *sql.DB) error {
-	retentionMonths := max(int(q.config.cleanupRetention.Hours()/(24*30)), 1)
+	retentionMonths := max(q.config.cleanupRetentionMonths, 1)
 
-	query := `SELECT drop_old_partitions('tasks', $1);`
+	doDelete := q.config.cleanupStrategy == DeleteStrategy
 
-	var droppedCount int
-	err := db.QueryRowContext(ctx, query, retentionMonths).Scan(&droppedCount)
+	query := `SELECT pgqueue.manage_old_partitions('tasks', $1, $2);`
+
+	var processedCount int
+	err := db.QueryRowContext(ctx, query, retentionMonths, doDelete).Scan(&processedCount)
 	if err != nil {
-		return fmt.Errorf("failed to drop old partitions: %w", err)
+		return fmt.Errorf("failed to process old partitions: %w", err)
 	}
 
-	if droppedCount > 0 {
-		q.logger.Info("Pruned old task partitions", "count", droppedCount, "retention_months", retentionMonths)
+	if processedCount > 0 {
+		action := "Archived (detached)"
+		if doDelete {
+			action = "Deleted (dropped)"
+		}
+		q.logger.Info("Maintenance complete on old task partitions",
+			"action", action,
+			"count", processedCount,
+			"retention_months", retentionMonths,
+		)
 	}
 
 	return nil

@@ -1,4 +1,6 @@
-CREATE TABLE IF NOT EXISTS cron_jobs (
+CREATE SCHEMA IF NOT EXISTS pgqueue;
+
+CREATE TABLE IF NOT EXISTS pgqueue.cron_jobs (
     job_id UUID PRIMARY KEY,
     name TEXT UNIQUE NOT NULL,
     expression TEXT NOT NULL,
@@ -8,7 +10,7 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 );
 
 
-CREATE TABLE IF NOT EXISTS tasks (
+CREATE TABLE IF NOT EXISTS pgqueue.tasks (
     task_id UUID NOT NULL,
     task_type VARCHAR(255) NOT NULL,
     payload JSONB NOT NULL,
@@ -26,15 +28,31 @@ CREATE TABLE IF NOT EXISTS tasks (
 ) PARTITION BY RANGE (created_at);
 
 
-CREATE INDEX IF NOT EXISTS idx_tasks_poll ON tasks (status, priority DESC, next_run_at ASC);
-CREATE INDEX IF NOT EXISTS idx_tasks_archive ON tasks (status, updated_at);
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_tasks_poll ON pgqueue.tasks (status, priority DESC, next_run_at ASC);
+CREATE INDEX IF NOT EXISTS idx_tasks_archive ON pgqueue.tasks (status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_processing_stuck 
-    ON tasks (updated_at) WHERE status = 'processing';
-CREATE INDEX IF NOT EXISTS idx_tasks_search ON tasks USING GIN (
+    ON pgqueue.tasks (updated_at) WHERE status = 'processing';
+CREATE INDEX IF NOT EXISTS idx_tasks_search ON pgqueue.tasks USING GIN (
     to_tsvector('simple', coalesce(task_type,'') || ' ' || coalesce(last_error,''))
 );
 
-CREATE OR REPLACE FUNCTION ensure_partition(table_name TEXT, month_offset INTEGER DEFAULT 0)
+-- notify_new_task creates a new task insertion event which the application listens.
+CREATE OR REPLACE FUNCTION pgqueue.notify_new_task() RETURNS trigger AS $$
+BEGIN
+  PERFORM pg_notify('new_task', '1');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger (Drop first to ensure idempotency during migration)
+DROP TRIGGER IF EXISTS task_enqueued ON tasks;
+CREATE TRIGGER task_enqueued
+    AFTER INSERT ON tasks
+    FOR EACH ROW EXECUTE PROCEDURE notify_new_task();
+
+-- ensure_partition creates tasks table partitions a month offset of 0 means current month and 1 means next month 
+CREATE OR REPLACE FUNCTION pgqueue.ensure_partition(table_name TEXT, month_offset INTEGER DEFAULT 0)
 RETURNS void AS $$
 DECLARE
     target_month DATE := date_trunc('month', now() + (month_offset || ' month')::interval);
@@ -56,14 +74,16 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION drop_old_partitions(target_table TEXT, retention_months INTEGER)
+-- manage_old_partitions either deletes old partitions if the system is using delete strategy on older tasks
+-- Or it just detaches old partitions if it is in archive strategy
+CREATE OR REPLACE FUNCTION pgqueue.manage_old_partitions(target_table TEXT, retention_months INTEGER, do_delete BOOLEAN)
 RETURNS INTEGER AS $$
 DECLARE
     partition_record RECORD;
     cutoff_date DATE := date_trunc('month', now() - (retention_months || ' months')::interval);
-    dropped_count INTEGER := 0;
-    schema_name TEXT := COALESCE(nullif(split_part(target_table, '.', 1), target_table), 'public');
-    base_table TEXT := CASE WHEN target_table LIKE '%._%' THEN split_part(target_table, '.', 2) ELSE target_table END;
+    processed_count INTEGER := 0;
+    schema_name TEXT := 'pgqueue';
+    base_table TEXT := target_table;
 BEGIN
     FOR partition_record IN
         SELECT child.relname AS partition_name
@@ -79,44 +99,19 @@ BEGIN
                 partition_date DATE := to_date(substring(partition_record.partition_name from '_y([0-9]{4}_m[0-9]{2})$'), 'YYYY_mMM');
             BEGIN
                 IF partition_date < cutoff_date THEN
-                    EXECUTE format('DROP TABLE %I.%I', schema_name, partition_record.partition_name);
-                    dropped_count := dropped_count + 1;
+                    IF do_delete THEN
+                        EXECUTE format('DROP TABLE %I.%I', schema_name, partition_record.partition_name);
+                    ELSE
+                        EXECUTE format('ALTER TABLE %I.%I DETACH PARTITION %I.%I', schema_name, base_table, schema_name, partition_record.partition_name);
+                    END IF;
+                    processed_count := processed_count + 1;
                 END IF;
             EXCEPTION WHEN OTHERS THEN
-                -- Skip unparseable partitions
+                -- Skip unparseable partitions safely
             END;
         END IF;
     END LOOP;
-    RETURN dropped_count;
+
+    RETURN processed_count;
 END;
 $$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION notify_new_task() RETURNS trigger AS $$
-BEGIN
-  PERFORM pg_notify('new_task', '1');
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS task_enqueued ON tasks;
-CREATE TRIGGER task_enqueued
-    AFTER INSERT ON tasks
-    FOR EACH ROW EXECUTE PROCEDURE notify_new_task();
-
-
--- Archive Table
-CREATE TABLE IF NOT EXISTS tasks_archive (LIKE tasks INCLUDING ALL);
-
-CREATE OR REPLACE FUNCTION notify_new_task() RETURNS trigger AS $$
-BEGIN
-  PERFORM pg_notify('new_task', '1');
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger (Drop first to ensure idempotency during migration)
-DROP TRIGGER IF EXISTS task_enqueued ON tasks;
-CREATE TRIGGER task_enqueued
-    AFTER INSERT ON tasks
-        FOR EACH ROW
-            EXECUTE PROCEDURE notify_new_task();
