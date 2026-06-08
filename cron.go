@@ -34,7 +34,7 @@ func (c *Client) ScheduleCron(
 
 	var jobID string
 	err = c.db.QueryRowContext(ctx, `
-		INSERT INTO cron_jobs (name, expression, next_run_at)
+		INSERT INTO pgqueue.cron_jobs (name, expression, next_run_at)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (name) DO UPDATE
 		SET expression = EXCLUDED.expression,
@@ -79,7 +79,7 @@ func (c *Client) ScheduleCron(
 		}
 
 		_, dbErr := c.db.ExecContext(runCtx, `
-			UPDATE cron_jobs
+			UPDATE pgqueue.cron_jobs
 			SET last_run_at = NOW(),
 			    next_run_at = $1
 			WHERE job_id = $2
@@ -127,7 +127,7 @@ func (c *Client) RemoveCron(id CronID, jobID string) error {
 	}
 
 	c.queue.scheduler.Remove(cron.EntryID(id))
-	_, err := c.db.Exec("DELETE FROM cron_jobs WHERE job_id = $1", jobID)
+	_, err := c.db.Exec("DELETE FROM pgqueue.cron_jobs WHERE job_id = $1", jobID)
 
 	return err
 }

@@ -71,8 +71,8 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	}
 
 	_, err := db.ExecContext(ctx, `
-		SELECT ensure_partition('tasks', 0);
-		SELECT ensure_partition('tasks', 1);
+		SELECT pgqueue.ensure_partition('tasks', 0);
+		SELECT pgqueue.ensure_partition('tasks', 1);
 	`)
 	return err
 }
@@ -98,7 +98,7 @@ func (c *Client) Enqueue(ctx context.Context, task TaskType, payload any, opts .
 	}
 
 	query := `
-		INSERT INTO tasks (
+		INSERT INTO pgqueue.tasks (
 			task_id, created_at, task_type, priority, 
 			max_retries, payload, next_run_at, deduplication_key
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

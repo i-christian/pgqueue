@@ -4,7 +4,7 @@ import "context"
 
 func (c *Client) Stats(ctx context.Context) (QueueStats, error) {
 	rows, err := c.db.QueryContext(ctx, `
-		SELECT status, count(*) FROM tasks GROUP BY status
+		SELECT status, count(*) FROM pgqueue.tasks GROUP BY status
 	`)
 	if err != nil {
 		return QueueStats{}, err

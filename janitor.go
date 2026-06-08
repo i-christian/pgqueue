@@ -47,8 +47,8 @@ func (q *Queue) runMaintenanceLoop(db *sql.DB) {
 
 		case <-partitionTicker.C:
 			_, err := db.ExecContext(q.ctx, `
-				SELECT ensure_partition('tasks', 0);
-				SELECT ensure_partition('tasks', 1);
+				SELECT pgqueue.ensure_partition('tasks', 0);
+				SELECT pgqueue.ensure_partition('tasks', 1);
 			`)
 			if err != nil {
 				q.logger.Error("Partition maintenance failed", "error", err)
@@ -74,7 +74,7 @@ func (q *Queue) runMaintenanceLoop(db *sql.DB) {
 // and resets them to 'pending', or marks them failed if retries are exhausted.
 func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration, db *sql.DB) (int64, error) {
 	query := `
-		UPDATE tasks
+		UPDATE pgqueue.tasks
 		SET
 			status = CASE
 				WHEN attempts >= max_retries THEN 'failed'

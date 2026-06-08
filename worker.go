@@ -233,7 +233,7 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 	defer tx.Rollback()
 
 	rows, err := tx.QueryContext(ctx, `
-		UPDATE tasks
+		UPDATE pgqueue.tasks
 		SET status = 'processing',
 		    attempts = attempts + 1,
 		    updated_at = NOW()
@@ -286,7 +286,7 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 // markDone marks a task as successfully completed.
 func (s *Server) markDone(ctx context.Context, task Task) {
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE tasks
+		UPDATE pgqueue.tasks
 		SET status = $3,
 		    updated_at = NOW()
 		WHERE task_id = $1 AND created_at = $2
@@ -303,7 +303,7 @@ func (s *Server) markDone(ctx context.Context, task Task) {
 func (s *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
 	if task.Attempts >= task.MaxRetries {
 		s.db.ExecContext(ctx, `
-			UPDATE tasks
+			UPDATE pgqueue.tasks
 			SET status = $4, last_error = $1
 			WHERE task_id = $2 AND created_at = $3
 		`, jobErr.Error(), task.ID, task.CreatedAt, TaskFailed)
@@ -316,7 +316,7 @@ func (s *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
 	isTest := os.Getenv("GO_ENV") == "test"
 
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE tasks
+		UPDATE pgqueue.tasks
 		SET status = $5,
 		    next_run_at = NOW() + (
 		        $1 * CASE
