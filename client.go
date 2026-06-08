@@ -65,7 +65,14 @@ func (c *Client) Close() error {
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {
-	_, err := db.ExecContext(ctx, schemaSQL)
+	if _, err := db.ExecContext(ctx, schemaSQL); err != nil {
+		return fmt.Errorf("schema execution failed: %w", err)
+	}
+
+	_, err := db.ExecContext(ctx, `
+		SELECT ensure_partition('tasks', 0);
+		SELECT ensure_partition('tasks', 1);
+	`)
 	return err
 }
 
