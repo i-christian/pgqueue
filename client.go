@@ -98,11 +98,17 @@ func (c *Client) Enqueue(ctx context.Context, task TaskType, payload any, opts .
 	}
 
 	query := `
-		INSERT INTO pgqueue.tasks (
-			task_id, created_at, task_type, priority, 
-			max_retries, payload, next_run_at, deduplication_key
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`
+   		INSERT INTO pgqueue.tasks (
+        	task_id, created_at, task_type, priority, 
+        	max_retries, payload, next_run_at, deduplication_key
+    	) 
+    	SELECT $1, $2, $3, $4, $5, $6, $7, $8
+    	WHERE $8::text IS NULL OR NOT EXISTS (
+        	SELECT 1 FROM pgqueue.tasks 
+        	WHERE deduplication_key = $8
+    	)
+    	
+    `
 
 	nextRunAt := sql.NullTime{Time: time.Now(), Valid: true}
 	if cfg.processAt != nil {

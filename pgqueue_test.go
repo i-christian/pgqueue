@@ -30,7 +30,7 @@ func setupTestDB(t *testing.T) (db *sql.DB, connString string) {
 		t.Skipf("Skipping tests: Database not reachable at %s", dsn)
 	}
 
-	_, err = db.Exec("TRUNCATE TABLE pgqueue.tasks RESTART IDENTITY;")
+	_, err = db.Exec("DROP SCHEMA IF EXISTS pgqueue CASCADE;")
 	if err != nil {
 		t.Logf("Truncate failed: %v", err)
 	}
