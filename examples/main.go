@@ -39,7 +39,7 @@ type ReportPayload struct {
 
 func main() {
 	// Database connection
-	connStr := "postgres://myuser:mypass@localhost:5432/task_queue?sslmode=disable"
+	connStr := "postgres://myuser:mypass@localhost:5432/task_queue?sslmode=disable&search_path=pgqueue"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
@@ -51,7 +51,7 @@ func main() {
 		pgqueue.WithRescueConfig(15*time.Minute, 60*time.Minute),
 
 		// Run hourly, Archive tasks older than 24 hours
-		pgqueue.WithCleanupConfig(1*time.Hour, 24*time.Hour, pgqueue.ArchiveStrategy),
+		pgqueue.WithCleanupConfig(1*time.Hour, 1, pgqueue.ArchiveStrategy),
 		// Enables cron job scheduling,
 		pgqueue.WithCronEnabled(),
 	)

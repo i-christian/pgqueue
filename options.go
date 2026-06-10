@@ -28,7 +28,7 @@ func WithRescueConfig(interval, visibilityTimeout time.Duration) QueueOption {
 //
 // params:
 //   - interval: how often to run the cleanup job.
-//   - retentionMonths: how many months of data to keep actively in the queue.
+//   - retentionMonths: how many months of data to keep active in the queue.
 //   - strategy: pgqueue.DeleteStrategy (drops) or pgqueue.ArchiveStrategy (detaches).
 func WithCleanupConfig(interval time.Duration, retentionMonths int, strategy CleanupStrategy) QueueOption {
 	return func(c *queueConfig) {

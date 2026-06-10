@@ -210,11 +210,11 @@ func (s *Server) processBatch(ctx context.Context, handler WorkerHandler) (int, 
 		return 0, nil
 	}
 
-	for _, task := range tasks {
-		if jobErr := handler.ProcessTask(ctx, &task); jobErr != nil {
-			s.handleFailure(ctx, task, jobErr)
+	for idx := range tasks {
+		if jobErr := handler.ProcessTask(ctx, &tasks[idx]); jobErr != nil {
+			s.handleFailure(ctx, tasks[idx], jobErr)
 		} else {
-			s.markDone(ctx, task)
+			s.markDone(ctx, tasks[idx])
 		}
 	}
 
