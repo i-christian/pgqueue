@@ -51,7 +51,7 @@ func main() {
 		pgqueue.WithRescueConfig(15*time.Minute, 60*time.Minute),
 
 		//  Archive (detach) partitions older than 2 months
-		pgqueue.WithCleanupConfig(1, pgqueue.ArchiveStrategy),
+		pgqueue.WithCleanupConfig(2, pgqueue.ArchiveStrategy),
 		// Enables cron job scheduling,
 		pgqueue.WithCronEnabled(),
 	)

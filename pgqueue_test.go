@@ -30,7 +30,7 @@ func setupTestDB(t *testing.T) (db *sql.DB, connString string) {
 		t.Skipf("Skipping tests: Database not reachable at %s", dsn)
 	}
 
-	_, err = db.Exec("TRUNCATE TABLE tasks, tasks_archive RESTART IDENTITY;")
+	_, err = db.Exec("TRUNCATE TABLE pgqueue.tasks RESTART IDENTITY;")
 	if err != nil {
 		t.Logf("Truncate failed: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestEnqueueAndProcess(t *testing.T) {
 	}
 
 	var status string
-	err = db.QueryRow("SELECT status FROM tasks WHERE task_type = $1", "test:success").Scan(&status)
+	err = db.QueryRow("SELECT status FROM pgqueue.tasks WHERE task_type = $1", "test:success").Scan(&status)
 	if err != nil {
 		t.Fatalf("Failed to query task: %v", err)
 	}
@@ -127,7 +127,8 @@ func TestRetryLogic(t *testing.T) {
 
 	var status string
 	var attempts int
-	err := db.QueryRow("SELECT status, attempts FROM tasks WHERE task_type = 'test:fail'").Scan(&status, &attempts)
+
+	err := db.QueryRow("SELECT status, attempts FROM pgqueue.tasks WHERE task_type = 'test:fail'").Scan(&status, &attempts)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -157,8 +158,8 @@ func TestDeduplication(t *testing.T) {
 	}
 
 	var count int
-	db.QueryRow("SELECT count(*) FROM tasks").Scan(&count)
 
+	db.QueryRow("SELECT count(*) FROM pgqueue.tasks").Scan(&count)
 	if count != 1 {
 		t.Errorf("Expected 1 task, found %d", count)
 	}
@@ -204,9 +205,9 @@ func TestRescueStuckTasks(t *testing.T) {
 
 	stuckID := uuid.New()
 	_, err := db.Exec(`
-		INSERT INTO tasks (task_id, task_type, status, priority, max_retries, payload, next_run_at, updated_at, created_at)
-		VALUES ($1, 'test:rescue', 'processing', 3, 5, '{}', NOW(), NOW() - INTERVAL '1 hour', NOW())
-	`, stuckID)
+    	INSERT INTO pgqueue.tasks (task_id, task_type, status, priority, max_retries, payload, next_run_at, updated_at, created_at)
+    	VALUES ($1, 'test:rescue', 'processing', 3, 5, '{}', NOW(), NOW() - INTERVAL '1 hour', NOW())
+		`, stuckID)
 	if err != nil {
 		t.Fatalf("Failed to insert stuck task: %v", err)
 	}
@@ -215,7 +216,8 @@ func TestRescueStuckTasks(t *testing.T) {
 
 	var status string
 	var lastError sql.NullString
-	err = db.QueryRow("SELECT status, last_error FROM tasks WHERE task_id = $1", stuckID).Scan(&status, &lastError)
+
+	err = db.QueryRow("SELECT status, last_error FROM pgqueue.tasks WHERE task_id = $1", stuckID).Scan(&status, &lastError)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}

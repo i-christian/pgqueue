@@ -46,7 +46,7 @@ func defaultQueueConfig() queueConfig {
 		rescueInterval:   5 * time.Minute,
 		rescueVisibility: 20 * time.Minute,
 
-		cleanupEnabled:         false,
+		cleanupEnabled:         true,
 		cleanupInterval:        24 * time.Hour,
 		cleanupRetentionMonths: 2,
 		cleanupStrategy:        DeleteStrategy,
