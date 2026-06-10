@@ -49,7 +49,7 @@ func (m model) fetchData() tea.Cmd {
 				count(*) FILTER (WHERE status = 'done'),
 				count(*) FILTER (WHERE status = 'failed'),
 				count(*) FILTER (WHERE attempts > 0 AND status = 'pending')
-			FROM tasks
+			FROM pgqueue.tasks
 		`
 		if err := m.db.QueryRowContext(ctx, qStats).Scan(
 			&stats.Pending, &stats.Processing, &stats.Completed, &stats.Failed, &stats.Retry,
@@ -63,18 +63,18 @@ func (m model) fetchData() tea.Cmd {
 		if search != "" {
 			qCount := `
 				SELECT count(*)
-				FROM tasks
+				FROM pgqueue.tasks
 				WHERE
 					to_tsvector('simple',
 						coalesce(task_type,'') || ' ' ||
 						coalesce(last_error,'')
 					) @@ websearch_to_tsquery('simple', $1)
-	`
+			`
 			_ = m.db.QueryRowContext(ctx, qCount, search).Scan(&totalT)
 		} else {
 			totalT = stats.Total
 		}
-		_ = m.db.QueryRowContext(ctx, "SELECT count(*) FROM cron_jobs").Scan(&totalC)
+		_ = m.db.QueryRowContext(ctx, "SELECT count(*) FROM pgqueue.cron_jobs").Scan(&totalC)
 
 		tOffset := m.taskPage * defaultPageSize
 		tRowsData, _ := m.db.QueryContext(ctx, `
@@ -84,7 +84,7 @@ func (m model) fetchData() tea.Cmd {
 			status,
 			priority,
 			LEFT(COALESCE(last_error, '-'), 50)
-		FROM tasks
+		FROM pgqueue.tasks
 		WHERE
 			($1 = '' OR
 				to_tsvector('simple',
@@ -112,7 +112,7 @@ func (m model) fetchData() tea.Cmd {
 		cOffset := m.cronPage * defaultPageSize
 		cRowsData, err := m.db.QueryContext(ctx, `
 			SELECT job_id, name, expression, last_run_at, next_run_at 
-			FROM cron_jobs 
+			FROM pgqueue.cron_jobs 
 			ORDER BY name ASC LIMIT $1 OFFSET $2
 		`, defaultPageSize, cOffset)
 
@@ -148,16 +148,22 @@ func (m model) showTaskDetail() tea.Cmd {
 		if len(selected) == 0 {
 			return nil
 		}
-		id := selected[0]
+		id := strings.TrimSpace(selected[0])
+
+		createdAt, err := extractTimeFromUUIDv7(id)
+		if err != nil {
+			return DetailContentMsg{Title: "Error", Content: "invalid UUID format"}
+		}
 
 		var payload []byte
 		var lastErr sql.NullString
 		var created, nextRun sql.NullTime
 		var attempts int
 
-		err := m.db.QueryRow(`
+		err = m.db.QueryRow(`
 			SELECT payload, last_error, created_at, next_run_at, attempts 
-			FROM tasks WHERE task_id = $1`, id).
+			FROM pgqueue.tasks 
+			WHERE task_id = $1 AND created_at = $2`, id, createdAt).
 			Scan(&payload, &lastErr, &created, &nextRun, &attempts)
 		if err != nil {
 			return DetailContentMsg{Title: "Error", Content: err.Error()}
@@ -198,7 +204,7 @@ func (m model) showCronDetail() tea.Cmd {
 
 		err := m.db.QueryRow(`
 			SELECT name, expression, last_run_at, next_run_at, created_at 
-			FROM cron_jobs WHERE job_id = $1`, id).
+			FROM pgqueue.cron_jobs WHERE job_id = $1`, id).
 			Scan(&name, &expression, &lastRun, &nextRun, &created)
 		if err != nil {
 			return DetailContentMsg{Title: "Error", Content: err.Error()}
@@ -235,7 +241,17 @@ func (m model) retryTask() tea.Cmd {
 			return nil
 		}
 		id := strings.TrimSpace(sel[0])
-		m.db.Exec("UPDATE tasks SET status='pending', attempts=0, next_run_at=NOW(), last_error=NULL WHERE task_id = $1", id)
+
+		createdAt, err := extractTimeFromUUIDv7(id)
+		if err != nil {
+			return nil
+		}
+
+		m.db.Exec(`
+			UPDATE pgqueue.tasks 
+			SET status='pending', attempts=0, next_run_at=NOW(), last_error=NULL 
+			WHERE task_id = $1 AND created_at = $2
+		`, id, createdAt)
 		return nil
 	}
 }
