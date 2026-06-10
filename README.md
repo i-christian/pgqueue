@@ -315,12 +315,12 @@ Avoid pgqueue if you need:
 
 ## Testing
 
-pgqueue uses PostgreSQL V18 for integration tests.
+pgqueue uses PostgreSQL v18 for integration tests.
 
 ### Run tests locally (Docker required)
 
 ```bash
-make test-full
+make test
 ```
 
 This will:
@@ -328,13 +328,6 @@ This will:
 * start a temporary PostgreSQL container
 * run all tests with the race detector
 * clean up automatically
-
-### Run tests against an existing PostgreSQL instance
-
-```bash
-export TEST_DB_DSN="postgres://user:pass@localhost:5432/task_queue_test?sslmode=disable"
-go test -v ./...
-```
 
 ### Benchmarks
 
