@@ -27,13 +27,11 @@ func WithRescueConfig(interval, visibilityTimeout time.Duration) QueueOption {
 // WithCleanupConfig configures automatic removal of old data.
 //
 // params:
-//   - interval: how often to run the cleanup job.
 //   - retentionMonths: how many months of data to keep active in the queue.
 //   - strategy: pgqueue.DeleteStrategy (drops) or pgqueue.ArchiveStrategy (detaches).
-func WithCleanupConfig(interval time.Duration, retentionMonths int, strategy CleanupStrategy) QueueOption {
+func WithCleanupConfig(retentionMonths int, strategy CleanupStrategy) QueueOption {
 	return func(c *queueConfig) {
 		c.cleanupEnabled = true
-		c.cleanupInterval = interval
 		c.cleanupRetentionMonths = retentionMonths
 		c.cleanupStrategy = strategy
 	}

@@ -50,8 +50,8 @@ func main() {
 		// Check every 15 min, consider stuck if running > 60 mins
 		pgqueue.WithRescueConfig(15*time.Minute, 60*time.Minute),
 
-		// Run hourly, Archive tasks older than 24 hours
-		pgqueue.WithCleanupConfig(1*time.Hour, 1, pgqueue.ArchiveStrategy),
+		//  Archive (detach) partitions older than 2 months
+		pgqueue.WithCleanupConfig(1, pgqueue.ArchiveStrategy),
 		// Enables cron job scheduling,
 		pgqueue.WithCronEnabled(),
 	)

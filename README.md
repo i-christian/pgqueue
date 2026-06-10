@@ -52,8 +52,8 @@ flowchart LR
     P["Producers<br/>queue.Enqueue()"]
     C["Cron Scheduler<br/>ScheduleCron()"]
 
-    T["PostgreSQL<br/>tasks table"]
-    A["tasks_archive"]
+    T["PostgreSQL<br/>pgqueue.tasks (Partitioned)"]
+    A["Detached Partitions<br/>(Archived Data)"]
     N["LISTEN / NOTIFY"]
 
     W["Worker Pool<br/>StartConsumer(n)"]
@@ -71,7 +71,7 @@ flowchart LR
     H -->|success| T
     H -->|failure| R
     R --> T
-    T --> A
+    T -->|Janitor Detaches| A
 
     %% Styles
     classDef producer fill:#E3F2FD,stroke:#1565C0,stroke-width:2px;
@@ -83,7 +83,8 @@ flowchart LR
     class T,A,N postgres;
     class W,M,R worker;
     class H handler;
-````
+
+```
 
 ---
 
@@ -101,7 +102,7 @@ go get github.com/i-christian/pgqueue
 client, err := pgqueue.NewClient(
     db,
     pgqueue.WithRescueConfig(5*time.Minute, 30*time.Minute),
-    pgqueue.WithCleanupConfig(1*time.Hour, 24*time.Hour, pgqueue.ArchiveStrategy),
+    pgqueue.WithCleanupConfig(2, pgqueue.ArchiveStrategy),
     pgqueue.WithCronEnabled(),
 )
 if err != nil {
