@@ -25,14 +25,10 @@ db-up:
 db-down:
 	docker rm -f $(DB_CONTAINER) || true
 
-# Run all tests with a race detector
-test:
-	GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./...
-
 # Start DB, run tests, and clean up
-test-full: db-down db-up
+test: db-down db-up
 	@echo "Running integration tests..."
-	@GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./...; \
+	@CGO_ENABLED=1 GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./...; \
 	EXIT_CODE=$$?; \
 	$(MAKE) db-down; \
 	exit $$EXIT_CODE
