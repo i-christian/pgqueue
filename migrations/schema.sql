@@ -46,10 +46,10 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger (Drop first to ensure idempotency during migration)
-DROP TRIGGER IF EXISTS task_enqueued ON tasks;
+DROP TRIGGER IF EXISTS task_enqueued ON pgqueue.tasks;
 CREATE TRIGGER task_enqueued
-    AFTER INSERT ON tasks
-    FOR EACH ROW EXECUTE PROCEDURE notify_new_task();
+    AFTER INSERT ON pgqueue.tasks
+    FOR EACH ROW EXECUTE PROCEDURE pgqueue.notify_new_task();
 
 -- ensure_partition creates tasks table partitions a month offset of 0 means current month and 1 means next month 
 CREATE OR REPLACE FUNCTION pgqueue.ensure_partition(table_name TEXT, month_offset INTEGER DEFAULT 0)

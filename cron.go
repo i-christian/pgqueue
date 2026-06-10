@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/i-christian/pgqueue/internal/pkg/stringutils"
 	"github.com/robfig/cron/v3"
 )
 
@@ -32,15 +33,20 @@ func (c *Client) ScheduleCron(
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	newID, cTime, err := stringutils.NewUUIDv7()
+	if err != nil {
+		return 0, err
+	}
+
 	var jobID string
 	err = c.db.QueryRowContext(ctx, `
-		INSERT INTO pgqueue.cron_jobs (name, expression, next_run_at)
-		VALUES ($1, $2, $3)
+		INSERT INTO pgqueue.cron_jobs (job_id, name, expression, next_run_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (name) DO UPDATE
 		SET expression = EXCLUDED.expression,
 		    next_run_at = EXCLUDED.next_run_at
 		RETURNING job_id
-	`, jobName, spec, nextRun).Scan(&jobID)
+	`, newID, jobName, spec, nextRun, cTime).Scan(&jobID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to persist cron job: %w", err)
 	}

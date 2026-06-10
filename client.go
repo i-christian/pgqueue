@@ -71,8 +71,8 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	}
 
 	_, err := db.ExecContext(ctx, `
-		SELECT pgqueue.ensure_partition('tasks', 0);
-		SELECT pgqueue.ensure_partition('tasks', 1);
+		SELECT pgqueue.ensure_partition('pgqueue.tasks', 0);
+		SELECT pgqueue.ensure_partition('pgqueue.tasks', 1);
 	`)
 	return err
 }

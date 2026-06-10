@@ -239,7 +239,7 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 		    updated_at = NOW()
 		WHERE (task_id, created_at) IN (
 			SELECT task_id, created_at
-			FROM tasks
+			FROM pgqueue.tasks
 			WHERE status = 'pending'
 			  AND next_run_at <= NOW()
 			ORDER BY priority DESC, next_run_at ASC

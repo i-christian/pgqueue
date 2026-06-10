@@ -47,8 +47,8 @@ func (q *Queue) runMaintenanceLoop(db *sql.DB) {
 
 		case <-partitionTicker.C:
 			_, err := db.ExecContext(q.ctx, `
-				SELECT pgqueue.ensure_partition('tasks', 0);
-				SELECT pgqueue.ensure_partition('tasks', 1);
+				SELECT pgqueue.ensure_partition('pgqueue.tasks', 0);
+				SELECT pgqueue.ensure_partition('pgqueue.tasks', 1);
 			`)
 			if err != nil {
 				q.logger.Error("Partition maintenance failed", "error", err)

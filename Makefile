@@ -3,7 +3,12 @@ DB_IMAGE=postgres:18-alpine
 HOST_PORT=5433
 DB_DSN="postgres://user:pass@localhost:$(HOST_PORT)/task_queue_test?sslmode=disable"
 
-.PHONY: db-up db-down test test-clean bench release
+.PHONY: run-example db-up db-down test test-clean bench release
+
+# Run the example code
+run-example:
+	@echo "Running examples..."
+	go run examples/main.go
 
 # Spin up the test database in a docker container
 db-up:

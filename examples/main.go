@@ -39,7 +39,7 @@ type ReportPayload struct {
 
 func main() {
 	// Database connection
-	connStr := "postgres://myuser:mypass@localhost:5432/task_queue?sslmode=disable&search_path=pgqueue"
+	connStr := "postgres://myuser:mypass@localhost:5432/task_queue?sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
