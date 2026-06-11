@@ -3,7 +3,6 @@ package pgqueue
 import (
 	"context"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -38,7 +37,6 @@ func NewServeMux() *ServeMux {
 func (mux *ServeMux) ProcessTask(ctx context.Context, task *Task) error {
 	h, pattern := mux.handler(task)
 	if pattern == "" {
-		log.Printf("[WARN] handler not found for task %s", task.Type)
 		return fmt.Errorf("handler not found for task %s", task.Type)
 	}
 
@@ -76,9 +74,9 @@ func (mux *ServeMux) match(typename string) (h WorkerHandler, pattern string) {
 		return v.h, v.pattern
 	}
 
-	for _, e := range mux.es {
-		if strings.HasPrefix(typename, e.pattern) {
-			return e.h, e.pattern
+	for idx := range mux.es {
+		if strings.HasPrefix(typename, mux.es[idx].pattern) {
+			return mux.es[idx].h, mux.es[idx].pattern
 		}
 	}
 	return nil, ""

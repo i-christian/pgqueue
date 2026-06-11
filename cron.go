@@ -41,10 +41,11 @@ func (c *Client) ScheduleCron(
 	var jobID string
 	err = c.db.QueryRowContext(ctx, `
 		INSERT INTO pgqueue.cron_jobs (job_id, name, expression, next_run_at, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (name) DO UPDATE
-		SET expression = EXCLUDED.expression,
-		    next_run_at = EXCLUDED.next_run_at
+			VALUES ($1, $2, $3, $4, $5)
+				ON CONFLICT (name) DO UPDATE
+					SET
+						expression = EXCLUDED.expression,
+		    			next_run_at = EXCLUDED.next_run_at
 		RETURNING job_id
 	`, newID, jobName, spec, nextRun, cTime).Scan(&jobID)
 	if err != nil {
@@ -86,8 +87,9 @@ func (c *Client) ScheduleCron(
 
 		_, dbErr := c.db.ExecContext(runCtx, `
 			UPDATE pgqueue.cron_jobs
-			SET last_run_at = NOW(),
-			    next_run_at = $1
+				SET
+					last_run_at = NOW(),
+			    	next_run_at = $1
 			WHERE job_id = $2
 		`, next, jobID)
 
