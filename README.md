@@ -347,4 +347,4 @@ Contributions are welcome! Here’s how you can help:
 * ✍️ **Submit pull requests** with clear descriptions
 * 📝 **Update documentation** and examples
 
-Please follow standard Golang conventions and run `make test-full` before submitting any PR to ensure nothing breaks.
+Please follow standard Golang conventions and run `make test` before submitting any PR to ensure nothing breaks.
