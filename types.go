@@ -52,6 +52,34 @@ func (p Priority) String() string {
 	}
 }
 
+type Pagination struct {
+	Limit  int
+	Offset int
+}
+
+// TaskInfo represents a lightweight view of a task for  the dashboard.
+type TaskInfo struct {
+	ID         uuid.UUID
+	CreatedAt  time.Time
+	Type       TaskType
+	Status     Status
+	Attempts   int
+	MaxRetries int
+	Priority   Priority
+	NextRunAt  time.Time
+	LastError  *string
+}
+
+// CronJob represents an active schedule in the database.
+type CronJob struct {
+	ID         uuid.UUID
+	Name       string
+	Expression string
+	LastRunAt  *time.Time
+	NextRunAt  *time.Time
+	CreatedAt  time.Time
+}
+
 type Client struct {
 	db     *sql.DB
 	queue  *Queue
