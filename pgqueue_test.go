@@ -84,7 +84,7 @@ func TestEnqueueAndProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to query task: %v", err)
 	}
-	if status != TaskDone {
+	if status != string(TaskDone) {
 		t.Errorf("Expected status 'done', got '%s'", status)
 	}
 }
@@ -133,7 +133,7 @@ func TestRetryLogic(t *testing.T) {
 		t.Fatalf("Query failed: %v", err)
 	}
 
-	if status != TaskFailed {
+	if status != string(TaskFailed) {
 		t.Errorf("Expected final status 'failed', got '%s'", status)
 	}
 }
@@ -222,7 +222,7 @@ func TestRescueStuckTasks(t *testing.T) {
 		t.Fatalf("Query failed: %v", err)
 	}
 
-	if status != TaskPending {
+	if status != string(TaskPending) {
 		t.Errorf("Expected stuck task to be reset to 'pending', got '%s'", status)
 	}
 
