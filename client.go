@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/i-christian/pgqueue/internal/pkg/errutil"
+	"github.com/i-christian/pgqueue/internal/pkg/queries"
 	"github.com/i-christian/pgqueue/internal/pkg/stringutils"
 	"github.com/robfig/cron/v3"
 )
@@ -48,9 +49,15 @@ func NewClient(db *sql.DB, opts ...QueueOption) (client *Client, err error) {
 		return nil, err
 	}
 
+	stmts, err := queries.NewPrepared(ctx, db)
+	if err != nil {
+		return nil, fmt.Errorf("pgqueue: failed to prepare statements: %w", err)
+	}
+
 	client = &Client{
 		db:     db,
 		queue:  q,
+		stmts:  stmts,
 		Logger: logger,
 	}
 
@@ -62,6 +69,10 @@ func NewClient(db *sql.DB, opts ...QueueOption) (client *Client, err error) {
 
 // Close shuts down the Client's background maintenance routines and Cron scheduler.
 func (c *Client) Close() error {
+	if c.stmts != nil {
+		_ = c.stmts.Close()
+	}
+
 	return c.queue.shutdown()
 }
 
@@ -70,10 +81,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("schema execution failed: %w", err)
 	}
 
-	_, err := db.ExecContext(ctx, `
-		SELECT pgqueue.ensure_partition('pgqueue.tasks', 0);
-		SELECT pgqueue.ensure_partition('pgqueue.tasks', 1);
-	`)
+	_, err := db.ExecContext(ctx, queries.EnsurePartitions)
 	return err
 }
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/i-christian/pgqueue/internal/pkg/queries"
 	"github.com/lib/pq"
 )
 
@@ -61,6 +62,12 @@ func (s *Server) Start() error {
 	if err := s.db.Ping(); err != nil {
 		return fmt.Errorf("database unreachable: %w", err)
 	}
+
+	stmts, err := queries.NewPrepared(s.ctx, s.db)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statements: %w", err)
+	}
+	s.stmts = stmts
 
 	listener := pq.NewListener(
 		s.connString,
@@ -124,6 +131,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
+		if s.stmts != nil {
+			_ = s.stmts.Close()
+		}
+
 		close(done)
 	}()
 
@@ -232,22 +243,8 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.QueryContext(ctx, `
-		UPDATE pgqueue.tasks
-		SET status = 'processing',
-		    attempts = attempts + 1,
-		    updated_at = NOW()
-		WHERE (task_id, created_at) IN (
-			SELECT task_id, created_at
-			FROM pgqueue.tasks
-			WHERE status = 'pending'
-			  AND next_run_at <= NOW()
-			ORDER BY priority DESC, next_run_at ASC
-			FOR UPDATE SKIP LOCKED
-			LIMIT $1
-		)
-		RETURNING task_id, created_at, task_type, payload, attempts, max_retries, priority
-	`, limit)
+	stmt := tx.StmtContext(ctx, s.stmts.FetchBatch)
+	rows, err := stmt.QueryContext(ctx, TaskProcessing, TaskPending, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query fetch: %w", err)
 	}
@@ -285,12 +282,7 @@ func (s *Server) fetchBatch(ctx context.Context, limit uint16) ([]Task, error) {
 
 // markDone marks a task as successfully completed.
 func (s *Server) markDone(ctx context.Context, task Task) {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE pgqueue.tasks
-		SET status = $3,
-		    updated_at = NOW()
-		WHERE task_id = $1 AND created_at = $2
-	`, task.ID, task.CreatedAt, TaskDone)
+	_, err := s.stmts.MarkTaskDone.ExecContext(ctx, task.ID, task.CreatedAt, TaskDone)
 	if err != nil {
 		log.Printf("pgqueue: failed to mark task %s as done: %v", task.ID, err)
 	}
@@ -302,11 +294,8 @@ func (s *Server) markDone(ctx context.Context, task Task) {
 // Otherwise, exponential backoff with jitter is applied.
 func (s *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
 	if task.Attempts >= task.MaxRetries {
-		s.db.ExecContext(ctx, `
-			UPDATE pgqueue.tasks
-			SET status = $4, last_error = $1
-			WHERE task_id = $2 AND created_at = $3
-		`, jobErr.Error(), task.ID, task.CreatedAt, TaskFailed)
+		s.stmts.MarkTaskFailed.ExecContext(ctx, jobErr.Error(), task.ID, task.CreatedAt, TaskFailed)
+
 		return
 	}
 
@@ -315,18 +304,14 @@ func (s *Server) handleFailure(ctx context.Context, task Task, jobErr error) {
 	totalWait := (backoff / 2) + jitter
 	isTest := os.Getenv("GO_ENV") == "test"
 
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE pgqueue.tasks
-		SET status = $5,
-		    next_run_at = NOW() + (
-		        $1 * CASE
-		            WHEN $6 = true THEN INTERVAL '1 millisecond'
-		            ELSE INTERVAL '1 second'
-		        END
-		    ),
-		    last_error = $2
-		WHERE task_id = $3 AND created_at = $4
-	`, totalWait.Seconds(), jobErr.Error(), task.ID, task.CreatedAt, TaskPending, isTest)
+	_, err := s.stmts.RescheduleTask.ExecContext(ctx,
+		totalWait.Seconds(),
+		jobErr.Error(),
+		task.ID,
+		task.CreatedAt,
+		TaskPending,
+		isTest,
+	)
 	if err != nil {
 		slog.Error("pgqueue: failed to reschedule task", "taskID", task.ID, "error", err)
 	}

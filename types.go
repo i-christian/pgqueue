@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/i-christian/pgqueue/internal/pkg/queries"
 	"github.com/robfig/cron/v3"
 )
 
@@ -83,6 +84,7 @@ type CronJob struct {
 type Client struct {
 	db     *sql.DB
 	queue  *Queue
+	stmts  *queries.Prepared
 	Logger *slog.Logger
 }
 
@@ -99,6 +101,7 @@ type Queue struct {
 type Server struct {
 	connString  string
 	db          *sql.DB
+	stmts       *queries.Prepared
 	handler     WorkerHandler
 	concurrency int
 	batchSize   uint16
