@@ -28,7 +28,6 @@ func NewServeMux() *ServeMux {
 		m: make(map[string]muxEntry),
 	}
 
-	mux.Use(recoverMiddleware())
 	return mux
 }
 

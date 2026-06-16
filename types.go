@@ -102,6 +102,7 @@ type Server struct {
 	connString  string
 	db          *sql.DB
 	stmts       *queries.Prepared
+	logger      *slog.Logger
 	handler     WorkerHandler
 	concurrency int
 	batchSize   uint16

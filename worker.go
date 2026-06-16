@@ -29,10 +29,15 @@ import (
 // The server is safe to run across multiple processes or machines
 // connected to the same PostgreSQL database.
 func NewServer(db *sql.DB, connString string, concurrency int, handler WorkerHandler, opts ...ServerOption) *Server {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	safeHandler := recoverMiddleware()(handler)
+	loggedHandler := slogMiddleware(logger)(safeHandler)
+
 	s := &Server{
 		connString:  connString,
 		db:          db,
-		handler:     handler,
+		handler:     loggedHandler,
 		batchSize:   10,
 		concurrency: concurrency,
 	}

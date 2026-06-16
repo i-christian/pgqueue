@@ -62,7 +62,7 @@ func NewClient(db *sql.DB, opts ...QueueOption) (client *Client, err error) {
 	}
 
 	q.wg.Add(1)
-	go q.runMaintenanceLoop(db)
+	go q.runMaintenanceLoop(db, stmts)
 
 	return client, nil
 }

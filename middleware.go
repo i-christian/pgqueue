@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// SlogMiddleware logs task lifecycle events.
-func SlogMiddleware(logger *slog.Logger) Middleware {
+// slogMiddleware logs task lifecycle events.
+func slogMiddleware(logger *slog.Logger) Middleware {
 	return func(next WorkerHandler) WorkerHandler {
 		return HandlerFunc(func(ctx context.Context, task *Task) error {
 			start := time.Now()
