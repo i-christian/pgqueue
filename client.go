@@ -64,6 +64,11 @@ func NewClient(db *sql.DB, opts ...QueueOption) (client *Client, err error) {
 	return client, nil
 }
 
+// Ping verifies that the client is connected to the database and that the database is responsive.
+func (c *Client) Ping(ctx context.Context) error {
+	return c.db.PingContext(ctx)
+}
+
 // Close shuts down the Client's background maintenance routines and Cron scheduler.
 func (c *Client) Close() error {
 	if c.stmts != nil {
