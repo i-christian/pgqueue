@@ -62,6 +62,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// ---- Verify connection with Ping ----
+	if err := client.Ping(ctx); err != nil {
+		log.Fatalf("Database ping failed: %v", err)
+	}
+	log.Println("pgqueue client connected and ready!")
+
 	// ---- Enqueue some example jobs ----
 
 	err = client.Enqueue(ctx,
@@ -131,20 +137,20 @@ func main() {
 		log.Println("cron task scheduled successfully, id", cronID)
 	}
 
-	jobs, _ := client.ListCronJobs()
+	jobs, _ := client.ListCronJobs(ctx, pgqueue.Pagination{Limit: 50})
 	for _, job := range jobs {
 		prevRun := func() string {
 			if !job.LastRunAt.Valid {
 				return "N/A"
 			}
 
-			return job.PrevRun.Format(time.DateTime)
+			return job.LastRunAt.Time.Format(time.DateTime)
 		}
 		fmt.Printf(
 			"CronID %d ->prev: %s -> next: %s\n",
 			job.ID,
 			prevRun(),
-			job.NextRun.Format(time.DateTime),
+			job.NextRunAt.Time.Format(time.DateTime),
 		)
 	}
 

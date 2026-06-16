@@ -69,7 +69,7 @@ func (c *Client) ScheduleCron(
 				String: enqueueErr.Error(),
 				Valid:  true,
 			}
-			c.Logger.Error(
+			c.queue.logger.Error(
 				"cron enqueue failed",
 				"job", jobName,
 				"error", errMsg,
@@ -79,7 +79,7 @@ func (c *Client) ScheduleCron(
 
 		_, dbErr := c.stmts.UpdateCronJobRunMeta.ExecContext(runCtx, next, jobID)
 		if dbErr != nil {
-			c.Logger.Error(
+			c.queue.logger.Error(
 				"cron metadata sync failed",
 				"job", jobName,
 				"error", dbErr,

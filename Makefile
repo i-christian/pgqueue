@@ -3,7 +3,7 @@ DB_IMAGE=postgres:18-alpine
 HOST_PORT=5433
 DB_DSN="postgres://user:pass@localhost:$(HOST_PORT)/task_queue_test?sslmode=disable"
 
-.PHONY: run-example db-up db-down test test-clean bench release
+.PHONY: run-example db-up db-down test test-queries test-client test-clean bench release
 
 # Run the example code
 run-example:
@@ -36,7 +36,7 @@ test-queries: db-down db-up
 # Run ONLY the client/worker integration tests
 test-client: db-down db-up
 	@echo "Running client and worker integration tests..."
-	@CGO_ENABLED=1 GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./; \
+	@CGO_ENABLED=1 GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -p 1 -v -race ./; \
 	EXIT_CODE=$$?; \
 	$(MAKE) db-down; \
 	exit $$EXIT_CODE
