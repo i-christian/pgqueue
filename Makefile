@@ -28,7 +28,7 @@ db-down:
 # Run ONLY the database query layer tests
 test-queries: db-down db-up
 	@echo "Running query-layer unit tests..."
-	@CGO_ENABLED=1 GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./internal/pkg/queries/...; \
+	@CGO_ENABLED=1 GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./internal/pkg/tests/...; \
 	EXIT_CODE=$$?; \
 	$(MAKE) db-down; \
 	exit $$EXIT_CODE

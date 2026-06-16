@@ -11,13 +11,11 @@ import (
 	"time"
 
 	"github.com/i-christian/pgqueue/internal/pkg/errutil"
+	"github.com/i-christian/pgqueue/internal/pkg/migrations"
 	"github.com/i-christian/pgqueue/internal/pkg/queries"
 	"github.com/i-christian/pgqueue/internal/pkg/stringutils"
 	"github.com/robfig/cron/v3"
 )
-
-//go:embed migrations/*
-var schemaSQL string
 
 // NewClient returns a Queue's Client.
 func NewClient(db *sql.DB, opts ...QueueOption) (client *Client, err error) {
@@ -44,7 +42,7 @@ func NewClient(db *sql.DB, opts ...QueueOption) (client *Client, err error) {
 
 	migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer migrateCancel()
-	if err := migrate(migrateCtx, db); err != nil {
+	if err := migrations.Migrate(migrateCtx, db); err != nil {
 		cancel()
 		return nil, err
 	}
@@ -73,15 +71,6 @@ func (c *Client) Close() error {
 	}
 
 	return c.queue.shutdown()
-}
-
-func migrate(ctx context.Context, db *sql.DB) error {
-	if _, err := db.ExecContext(ctx, schemaSQL); err != nil {
-		return fmt.Errorf("schema execution failed: %w", err)
-	}
-
-	_, err := db.ExecContext(ctx, queries.EnsurePartitions)
-	return err
 }
 
 // Enqueue adds a task to the queue
