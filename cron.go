@@ -108,26 +108,6 @@ func (c *Client) ScheduleCron(
 	return CronID(entryID), nil
 }
 
-// ListCronJobs returns a list of scheduled tasks
-func (c *Client) ListCronJobs() ([]CronJobInfo, error) {
-	if c.queue.scheduler == nil {
-		return nil, errors.New("cron is disabled")
-	}
-
-	entries := c.queue.scheduler.Entries()
-	jobs := make([]CronJobInfo, 0, len(entries))
-
-	for _, e := range entries {
-		jobs = append(jobs, CronJobInfo{
-			ID:      CronID(e.ID),
-			NextRun: e.Next,
-			PrevRun: e.Prev,
-		})
-	}
-
-	return jobs, nil
-}
-
 // RemoveCron removes a scheduled task from cron
 func (c *Client) RemoveCron(id CronID, jobID string) error {
 	if c.queue.scheduler == nil {
