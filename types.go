@@ -68,7 +68,7 @@ type TaskInfo struct {
 	MaxRetries int
 	Priority   Priority
 	NextRunAt  time.Time
-	LastError  *string
+	LastError  sql.NullString
 }
 
 // CronJob represents an active schedule in the database.
@@ -76,16 +76,15 @@ type CronJob struct {
 	ID         uuid.UUID
 	Name       string
 	Expression string
-	LastRunAt  *time.Time
-	NextRunAt  *time.Time
+	LastRunAt  sql.NullTime
+	NextRunAt  sql.NullTime
 	CreatedAt  time.Time
 }
 
 type Client struct {
-	db     *sql.DB
-	queue  *Queue
-	stmts  *queries.Prepared
-	Logger *slog.Logger
+	db    *sql.DB
+	queue *Queue
+	stmts *queries.Prepared
 }
 
 type Queue struct {

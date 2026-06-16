@@ -99,9 +99,6 @@ func main() {
 
 	mux := pgqueue.NewServeMux()
 
-	// Middleware runs for every task
-	mux.Use(pgqueue.SlogMiddleware(client.Logger))
-
 	// Register handlers
 	mux.HandleFunc(TaskSendEmail, sendEmailHandler)
 	mux.HandleFunc(TaskCleanupBase, cleanupHandler)
@@ -137,7 +134,7 @@ func main() {
 	jobs, _ := client.ListCronJobs()
 	for _, job := range jobs {
 		prevRun := func() string {
-			if job.PrevRun.IsZero() {
+			if !job.LastRunAt.Valid {
 				return "N/A"
 			}
 

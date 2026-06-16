@@ -25,10 +25,18 @@ db-up:
 db-down:
 	docker rm -f $(DB_CONTAINER) || true
 
-# Start DB, run tests, and clean up
-test: db-down db-up
-	@echo "Running integration tests..."
-	@CGO_ENABLED=1 GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./...; \
+# Run ONLY the database query layer tests
+test-queries: db-down db-up
+	@echo "Running query-layer unit tests..."
+	@CGO_ENABLED=1 GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./internal/pkg/queries/...; \
+	EXIT_CODE=$$?; \
+	$(MAKE) db-down; \
+	exit $$EXIT_CODE
+
+# Run ONLY the client/worker integration tests
+test-client: db-down db-up
+	@echo "Running client and worker integration tests..."
+	@CGO_ENABLED=1 GO_ENV=test TEST_DB_DSN=$(DB_DSN) go test -v -race ./; \
 	EXIT_CODE=$$?; \
 	$(MAKE) db-down; \
 	exit $$EXIT_CODE
