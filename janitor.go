@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/i-christian/pgqueue/internal/pkg/queries"
 )
 
 // runMaintenanceLoop handles all background system jobs
-func (q *Queue) runMaintenanceLoop(db *sql.DB) {
+func (q *Queue) runMaintenanceLoop(db *sql.DB, stmts *queries.Prepared) {
 	defer q.wg.Done()
 
 	var rescueTicker *time.Ticker
@@ -46,16 +48,13 @@ func (q *Queue) runMaintenanceLoop(db *sql.DB) {
 			return
 
 		case <-partitionTicker.C:
-			_, err := db.ExecContext(q.ctx, `
-				SELECT pgqueue.ensure_partition('pgqueue.tasks', 0);
-				SELECT pgqueue.ensure_partition('pgqueue.tasks', 1);
-			`)
+			_, err := db.ExecContext(q.ctx, queries.EnsurePartitions)
 			if err != nil {
 				q.logger.Error("Partition maintenance failed", "error", err)
 			}
 
 		case <-rescueTicker.C:
-			count, err := q.rescueStuckTasks(q.ctx, q.config.rescueVisibility, db)
+			count, err := q.rescueStuckTasks(q.ctx, q.config.rescueVisibility, stmts)
 			if err != nil {
 				q.logger.Error("Rescue failed", "error", err)
 			} else if count > 0 {
@@ -72,39 +71,13 @@ func (q *Queue) runMaintenanceLoop(db *sql.DB) {
 
 // rescueStuckTasks finds tasks that have been 'processing' for too long
 // and resets them to 'pending', or marks them failed if retries are exhausted.
-func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration, db *sql.DB) (int64, error) {
-	query := `
-		UPDATE pgqueue.tasks
-		SET
-			status = CASE
-				WHEN attempts >= max_retries THEN 'failed'
-				WHEN status = 'processing' THEN 'pending'
-				ELSE status
-			END,
-			updated_at = NOW(),
-			next_run_at = CASE
-				WHEN status = 'processing' AND attempts < max_retries THEN NOW()
-				ELSE next_run_at
-			END,
-			attempts = CASE
-				WHEN status = 'processing' AND attempts < max_retries THEN attempts + 1
-				ELSE attempts
-			END,
-			last_error = CASE
-				WHEN status = 'processing' AND attempts < max_retries
-				THEN 'detected stuck task; resetting'
-				ELSE last_error
-			END
-		WHERE
-			attempts >= max_retries
-			OR (
-				status = 'processing'
-				AND attempts < max_retries
-				AND updated_at < NOW() - ($1 * INTERVAL '1 seconds')
-			);
-	`
-
-	res, err := db.ExecContext(ctx, query, timeout.Seconds())
+func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration, stmts *queries.Prepared) (int64, error) {
+	res, err := stmts.RescueStuckTasks.ExecContext(ctx,
+		timeout.Seconds(),
+		TaskFailed,
+		TaskProcessing,
+		TaskPending,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -118,10 +91,8 @@ func (q *Queue) runCleanup(ctx context.Context, db *sql.DB) error {
 
 	doDelete := q.config.cleanupStrategy == DeleteStrategy
 
-	query := `SELECT pgqueue.manage_old_partitions('tasks', $1, $2);`
-
 	var processedCount int
-	err := db.QueryRowContext(ctx, query, retentionMonths, doDelete).Scan(&processedCount)
+	err := db.QueryRowContext(ctx, queries.ManageOldPartitions, retentionMonths, doDelete).Scan(&processedCount)
 	if err != nil {
 		return fmt.Errorf("failed to process old partitions: %w", err)
 	}

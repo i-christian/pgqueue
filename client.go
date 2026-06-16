@@ -105,19 +105,6 @@ func (c *Client) Enqueue(ctx context.Context, task TaskType, payload any, opts .
 		return fmt.Errorf("failed to generate task ID: %w", err)
 	}
 
-	query := `
-   		INSERT INTO pgqueue.tasks (
-        	task_id, created_at, task_type, priority, 
-        	max_retries, payload, next_run_at, deduplication_key
-    	) 
-    	SELECT $1, $2, $3, $4, $5, $6, $7, $8
-    	WHERE $8::text IS NULL OR NOT EXISTS (
-        	SELECT 1 FROM pgqueue.tasks 
-        	WHERE deduplication_key = $8
-    	)
-    	
-    `
-
 	nextRunAt := sql.NullTime{Time: time.Now(), Valid: true}
 	if cfg.processAt != nil {
 		nextRunAt = sql.NullTime{Time: *cfg.processAt, Valid: true}
@@ -128,7 +115,7 @@ func (c *Client) Enqueue(ctx context.Context, task TaskType, payload any, opts .
 		dedupKey = sql.NullString{String: *cfg.dedupKey, Valid: true}
 	}
 
-	_, err = c.db.ExecContext(ctx, query,
+	_, err = c.stmts.EnqueueTask.ExecContext(ctx,
 		taskID, createdAt, task, cfg.priority,
 		cfg.maxRetries, payloadBytes, nextRunAt, dedupKey,
 	)

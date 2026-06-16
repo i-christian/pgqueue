@@ -39,15 +39,7 @@ func (c *Client) ScheduleCron(
 	}
 
 	var jobID string
-	err = c.db.QueryRowContext(ctx, `
-		INSERT INTO pgqueue.cron_jobs (job_id, name, expression, next_run_at, created_at)
-			VALUES ($1, $2, $3, $4, $5)
-				ON CONFLICT (name) DO UPDATE
-					SET
-						expression = EXCLUDED.expression,
-		    			next_run_at = EXCLUDED.next_run_at
-		RETURNING job_id
-	`, newID, jobName, spec, nextRun, cTime).Scan(&jobID)
+	err = c.stmts.UpsertCronJob.QueryRowContext(ctx, newID, jobName, spec, nextRun, cTime).Scan(&jobID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to persist cron job: %w", err)
 	}
@@ -85,14 +77,7 @@ func (c *Client) ScheduleCron(
 			)
 		}
 
-		_, dbErr := c.db.ExecContext(runCtx, `
-			UPDATE pgqueue.cron_jobs
-				SET
-					last_run_at = NOW(),
-			    	next_run_at = $1
-			WHERE job_id = $2
-		`, next, jobID)
-
+		_, dbErr := c.stmts.UpdateCronJobRunMeta.ExecContext(runCtx, next, jobID)
 		if dbErr != nil {
 			c.Logger.Error(
 				"cron metadata sync failed",
@@ -115,7 +100,8 @@ func (c *Client) RemoveCron(id CronID, jobID string) error {
 	}
 
 	c.queue.scheduler.Remove(cron.EntryID(id))
-	_, err := c.db.Exec("DELETE FROM pgqueue.cron_jobs WHERE job_id = $1", jobID)
+
+	_, err := c.stmts.DeleteCronJob.ExecContext(context.Background(), jobID)
 
 	return err
 }

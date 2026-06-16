@@ -2,8 +2,6 @@ package pgqueue
 
 import (
 	"context"
-
-	"github.com/i-christian/pgqueue/internal/pkg/queries"
 )
 
 // ListTasks returns a paginated list of tasks, optionally filtered by status.
@@ -18,7 +16,7 @@ func (c *Client) ListTasks(ctx context.Context, status *Status, page Pagination)
 		statusFilter = &s
 	}
 
-	rows, err := c.db.QueryContext(ctx, queries.ListTasks, statusFilter, page.Limit, page.Offset)
+	rows, err := c.stmts.ListTasks.QueryContext(ctx, statusFilter, page.Limit, page.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +46,7 @@ func (c *Client) ListCronJobs(ctx context.Context, page Pagination) ([]CronJob, 
 		page.Limit = 50
 	}
 
-	rows, err := c.db.QueryContext(ctx, queries.ListCronJobs, page.Limit, page.Offset)
+	rows, err := c.stmts.ListCronJobs.QueryContext(ctx, page.Limit, page.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +68,7 @@ func (c *Client) ListCronJobs(ctx context.Context, page Pagination) ([]CronJob, 
 }
 
 func (c *Client) Stats(ctx context.Context) (QueueStats, error) {
-	rows, err := c.db.QueryContext(ctx, queries.GetQueueStats)
+	rows, err := c.stmts.GetQueueStats.QueryContext(ctx)
 	if err != nil {
 		return QueueStats{}, err
 	}
@@ -83,9 +81,9 @@ func (c *Client) Stats(ctx context.Context) (QueueStats, error) {
 		if err := rows.Scan(&status, &count); err != nil {
 			continue
 		}
-		
+
 		s.Total += count
-		
+
 		switch Status(status) {
 		case TaskPending:
 			s.Pending = count
