@@ -63,6 +63,26 @@ const (
 
 	GetQueueStats = `SELECT status, count(*) FROM pgqueue.tasks GROUP BY status`
 
+	UpsertCronJob = `
+		INSERT INTO pgqueue.cron_jobs (job_id, name, expression, next_run_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (name) DO UPDATE
+			SET
+				expression = EXCLUDED.expression,
+				next_run_at = EXCLUDED.next_run_at
+		RETURNING job_id
+	`
+
+	UpdateCronJobRunMeta = `
+		UPDATE pgqueue.cron_jobs
+		SET
+			last_run_at = NOW(),
+			next_run_at = $1
+		WHERE job_id = $2
+	`
+
+	DeleteCronJob = `DELETE FROM pgqueue.cron_jobs WHERE job_id = $1`
+
 	RescueStuckTasks = `
 		UPDATE pgqueue.tasks
 		SET
@@ -94,7 +114,7 @@ const (
 			);
 	`
 
-	ManageOldPartitions = `SELECT pgqueue.manage_old_partitions('tasks', $1, $2);`
+	ManageOldPartitions = `SELECT pgqueue.manage_old_partitions('pgqueue.tasks', $1, $2);`
 
 	ListCronJobs = `
 		SELECT job_id, name, expression, last_run_at, next_run_at, created_at 

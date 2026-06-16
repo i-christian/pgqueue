@@ -70,9 +70,7 @@ func (c *Client) ListCronJobs(ctx context.Context, page Pagination) ([]CronJob, 
 }
 
 func (c *Client) Stats(ctx context.Context) (QueueStats, error) {
-	rows, err := c.db.QueryContext(ctx, `
-		SELECT status, count(*) FROM pgqueue.tasks GROUP BY status
-	`)
+	rows, err := c.db.QueryContext(ctx, queries.GetQueueStats)
 	if err != nil {
 		return QueueStats{}, err
 	}
@@ -85,17 +83,19 @@ func (c *Client) Stats(ctx context.Context) (QueueStats, error) {
 		if err := rows.Scan(&status, &count); err != nil {
 			continue
 		}
+		
 		s.Total += count
-		switch status {
-		case "pending":
+		
+		switch Status(status) {
+		case TaskPending:
 			s.Pending = count
-		case "processing":
+		case TaskProcessing:
 			s.Processing = count
-		case "failed":
+		case TaskFailed:
 			s.Failed = count
-		case "done":
+		case TaskDone:
 			s.Done = count
 		}
 	}
-	return s, nil
+	return s, rows.Err()
 }
