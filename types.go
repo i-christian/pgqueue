@@ -19,11 +19,13 @@ import (
 
 var ErrHandlerNotFound = errors.New("handler not found for task")
 
+type Status string
+
 const (
-	TaskDone       = "done"
-	TaskPending    = "pending"
-	TaskProcessing = "processing"
-	TaskFailed     = "failed"
+	TaskDone       Status = "done"
+	TaskPending    Status = "pending"
+	TaskProcessing Status = "processing"
+	TaskFailed     Status = "failed"
 )
 
 type (
