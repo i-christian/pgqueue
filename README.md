@@ -154,9 +154,6 @@ Supported options include:
 ```go
 mux := pgqueue.NewServeMux()
 
-// Middleware runs for every task
-mux.Use(pgqueue.SlogMiddleware(client.Logger))
-
 // Exact match
 mux.HandleFunc("task:send:email", sendEmailHandler)
 
@@ -212,17 +209,43 @@ if err != nil {
     log.Fatal(err)
 }
 
-jobs, _ := client.ListCronJobs()
+
+jobs, _ := client.ListCronJobs(ctx, pgqueue.Pagination{Limit: 50})
 for _, job := range jobs {
-    fmt.Printf(
-        "Cron %d → next: %s\n",
-        job.ID,
-        job.NextRun.Format(time.DateTime),
-    )
+		prevRun := func() string {
+			if !job.LastRunAt.Valid {
+				return "N/A"
+			}
+
+			return job.LastRunAt.Time.Format(time.DateTime)
+		}
+		fmt.Printf(
+			"CronID %d ->prev: %s -> next: %s\n",
+			job.ID,
+			prevRun(),
+			job.NextRunAt.Time.Format(time.DateTime),
+		)
 }
 
 // Optional cleanup
 client.RemoveCron(cronID)
+```
+
+---
+
+## Dashboard APIs & Queue Stats
+
+You can build your own admin UI by querying the queue state directly:
+
+```go
+// Get high-level stats
+stats, _ := client.Stats(ctx)
+fmt.Printf("Pending: %d | Done: %d\n", stats.Pending, stats.Done)
+
+// List paginated tasks (e.g., all failed tasks)
+failedStatus := pgqueue.TaskFailed
+tasks, _ := client.ListTasks(ctx, &failedStatus, pgqueue.Pagination{Limit: 20})
+
 ```
 
 ---
@@ -234,22 +257,6 @@ client.RemoveCron(cronID)
 * Exponential backoff: `2^attempts`
 * Jitter added to prevent thundering-herd effects
 * Max retries configurable per job
-
----
-
-## Queue Stats
-
-```go
-stats, _ := client.Stats(ctx)
-
-fmt.Printf(
-    "Pending: %d | Processing: %d | Failed: %d | Done: %d\n",
-    stats.Pending,
-    stats.Processing,
-    stats.Failed,
-    stats.Done,
-)
-```
 
 ---
 
@@ -318,10 +325,14 @@ Avoid pgqueue if you need:
 pgqueue uses PostgreSQL v18 for integration tests.
 
 ### Run tests locally (Docker required)
-
-```bash
-make test
-```
+  - To run check schema and queries
+    ```bash
+       make test-queries
+    ```
+  - For full end-to-end test run
+    ```bash
+      make test-client
+    ```
 
 This will:
 

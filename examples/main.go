@@ -159,6 +159,9 @@ func main() {
 		ticker := time.NewTicker(15 * time.Second)
 		for range ticker.C {
 			stats, _ := client.Stats(ctx)
+			// completeStatus := pgqueue.TaskDone
+			// 	stats, _ := client.ListTasks(ctx, &completeStatus, pgqueue.Pagination{Limit: 20})
+			// 	fmt.Println("stats: \n", stats)
 			fmt.Printf("--- Queue Stats ---\nPending: %d | Processing: %d | Failed: %d | Success: %d\n",
 				stats.Pending, stats.Processing, stats.Failed, stats.Done)
 		}
