@@ -80,12 +80,16 @@ func TestEnqueueAndProcess(t *testing.T) {
 	}
 
 	var status string
-	err = db.QueryRow("SELECT status FROM pgqueue.tasks WHERE task_type = $1", "test:success").Scan(&status)
-	if err != nil {
-		t.Fatalf("Failed to query task: %v", err)
+	for range 10 {
+		err = db.QueryRow("SELECT status FROM pgqueue.tasks WHERE task_type = $1", "test:success").Scan(&status)
+		if err == nil && status == string(TaskDone) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
+
 	if status != string(TaskDone) {
-		t.Errorf("Expected status 'done', got '%s'", status)
+		t.Errorf("Expected status 'done', got '%s' (err: %v)", status, err)
 	}
 }
 
