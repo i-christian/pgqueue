@@ -15,6 +15,7 @@ type Prepared struct {
 	RescheduleTask       *sql.Stmt
 	GetQueueStats        *sql.Stmt
 	RescueStuckTasks     *sql.Stmt
+	CountCronJobs        *sql.Stmt
 	ListCronJobs         *sql.Stmt
 	ListTasks            *sql.Stmt
 	UpsertCronJob        *sql.Stmt
@@ -47,6 +48,7 @@ func NewPrepared(ctx context.Context, db *sql.DB) (*Prepared, error) {
 	p.RescheduleTask = prepare(RescheduleTask)
 	p.GetQueueStats = prepare(GetQueueStats)
 	p.RescueStuckTasks = prepare(RescueStuckTasks)
+	p.CountCronJobs = prepare(CountCronJobs)
 	p.ListCronJobs = prepare(ListCronJobs)
 	p.ListTasks = prepare(ListTasks)
 	p.UpsertCronJob = prepare(UpsertCronJob)
@@ -71,6 +73,7 @@ func (p *Prepared) Close() error {
 		p.RescheduleTask,
 		p.GetQueueStats,
 		p.RescueStuckTasks,
+		p.CountCronJobs,
 		p.ListCronJobs,
 		p.ListTasks,
 		p.UpsertCronJob,

@@ -67,6 +67,16 @@ func (c *Client) ListCronJobs(ctx context.Context, page Pagination) ([]CronJob, 
 	return jobs, rows.Err()
 }
 
+// CountCronJobs returns the total number of registered cron schedules.
+func (c *Client) CountCronJobs(ctx context.Context) (int64, error) {
+	var count int64
+	err := c.stmts.CountCronJobs.QueryRowContext(ctx).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (c *Client) Stats(ctx context.Context) (QueueStats, error) {
 	rows, err := c.stmts.GetQueueStats.QueryContext(ctx)
 	if err != nil {

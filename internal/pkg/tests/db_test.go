@@ -56,7 +56,7 @@ func TestPreparedStatements(t *testing.T) {
 	}
 	defer stmts.Close()
 
-	if stmts.EnqueueTask == nil || stmts.FetchBatch == nil {
+	if stmts.EnqueueTask == nil || stmts.FetchBatch == nil || stmts.CountCronJobs == nil {
 		t.Error("Expected statements to be initialized, got nil")
 	}
 }
@@ -170,6 +170,15 @@ func TestCronQueries(t *testing.T) {
 	db.QueryRow("SELECT expression FROM pgqueue.cron_jobs WHERE job_id = $1", jobID).Scan(&expression)
 	if expression != "0 12 * * *" {
 		t.Errorf("Expected updated expression '0 12 * * *', got '%s'", expression)
+	}
+
+	var count int64
+	err = stmts.CountCronJobs.QueryRowContext(ctx).Scan(&count)
+	if err != nil {
+		t.Fatalf("CountCronJobs failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Expected cron count to be 1, got %d", count)
 	}
 
 	_, err = stmts.DeleteCronJob.ExecContext(ctx, jobID)

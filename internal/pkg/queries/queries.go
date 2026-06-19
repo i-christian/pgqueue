@@ -116,6 +116,8 @@ const (
 
 	ManageOldPartitions = `SELECT pgqueue.manage_old_partitions('pgqueue.tasks', $1, $2);`
 
+	CountCronJobs = `SELECT COUNT(*) FROM pgqueue.cron_jobs`
+
 	ListCronJobs = `
 		SELECT job_id, name, expression, last_run_at, next_run_at, created_at 
 		FROM pgqueue.cron_jobs 
