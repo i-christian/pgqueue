@@ -29,7 +29,7 @@ func (c *Client) ListTasks(ctx context.Context, status *Status, page Pagination)
 		if err := rows.Scan(
 			&t.ID, &t.CreatedAt, &t.Type, &s,
 			&t.Attempts, &t.MaxRetries, &t.Priority,
-			&t.NextRunAt, &t.LastError,
+			&t.NextRunAt, &t.LastError, &t.Payload,
 		); err != nil {
 			return nil, err
 		}

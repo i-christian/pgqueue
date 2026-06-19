@@ -69,6 +69,7 @@ type TaskInfo struct {
 	Priority   Priority
 	NextRunAt  time.Time
 	LastError  sql.NullString
+	Payload    []byte
 }
 
 // CronJob represents an active schedule in the database.

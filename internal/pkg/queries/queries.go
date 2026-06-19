@@ -126,7 +126,7 @@ const (
 	`
 
 	ListTasks = `
-		SELECT task_id, created_at, task_type, status, attempts, max_retries, priority, next_run_at, last_error
+		SELECT task_id, created_at, task_type, status, attempts, max_retries, priority, next_run_at, last_error, payload
 		FROM pgqueue.tasks
 		WHERE ($1::text IS NULL OR status = $1)
 		ORDER BY created_at DESC
