@@ -97,14 +97,22 @@ BEGIN
         IF partition_record.partition_name ~ '_y[0-9]{4}_m[0-9]{2}$' THEN
             DECLARE
                 partition_date DATE := to_date(substring(partition_record.partition_name from '_y([0-9]{4}_m[0-9]{2})$'), 'YYYY_mMM');
+                active_tasks INTEGER;
             BEGIN
                 IF partition_date < cutoff_date THEN
-                    IF do_delete THEN
-                        EXECUTE format('DROP TABLE %I.%I', schema_name, partition_record.partition_name);
-                    ELSE
-                        EXECUTE format('ALTER TABLE %I.%I DETACH PARTITION %I.%I', schema_name, base_table, schema_name, partition_record.partition_name);
+                    EXECUTE format(
+                        'SELECT count(1) FROM %I.%I WHERE status IN (''pending'', ''processing'')', 
+                        schema_name, partition_record.partition_name
+                    ) INTO active_tasks;
+
+                    IF active_tasks = 0 THEN
+                        IF do_delete THEN
+                            EXECUTE format('DROP TABLE %I.%I', schema_name, partition_record.partition_name);
+                        ELSE
+                            EXECUTE format('ALTER TABLE %I.%I DETACH PARTITION %I.%I', schema_name, base_table, schema_name, partition_record.partition_name);
+                        END IF;
+                        processed_count := processed_count + 1;
                     END IF;
-                    processed_count := processed_count + 1;
                 END IF;
             EXCEPTION WHEN OTHERS THEN
                 -- Skip unparseable partitions safely

@@ -61,6 +61,16 @@ const (
 		WHERE task_id = $3 AND created_at = $4
 	`
 
+	RetryTask = `
+		UPDATE pgqueue.tasks
+		SET status = 'pending',
+		    attempts = 0,
+		    last_error = NULL,
+		    next_run_at = NOW(),
+		    updated_at = NOW()
+		WHERE task_id = $1 AND created_at = $2
+	`
+
 	GetQueueStats = `SELECT status, count(*) FROM pgqueue.tasks GROUP BY status`
 
 	UpsertCronJob = `

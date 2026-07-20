@@ -2,6 +2,11 @@ package pgqueue
 
 import (
 	"context"
+	"fmt"
+	"time"
+	"uuid"
+
+	"github.com/i-christian/pgqueue/internal/pkg/stringutils"
 )
 
 // ListTasks returns a paginated list of tasks, optionally filtered by status.
@@ -38,6 +43,26 @@ func (c *Client) ListTasks(ctx context.Context, status *Status, page Pagination)
 	}
 
 	return tasks, rows.Err()
+}
+
+// RetryTask resets a failed or stuck task back to a pending state for immediate execution.
+func (c *Client) RetryTask(ctx context.Context, taskID uuid.UUID) error {
+	createdAt := stringutils.ExtractTimeFromUUIDv7(taskID)
+	res, err := c.stmts.RetryTask.ExecContext(ctx, taskID, createdAt)
+	if err != nil {
+		return fmt.Errorf("failed to retry task: %w", err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check affected rows: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("task not found or could not be retried (id: %s)", taskID)
+	}
+
+	return nil
 }
 
 // ListCronJobs returns a paginated list of registered cron schedules.
