@@ -2,7 +2,6 @@
 
 ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/i-christian/pgqueue)
 [![License](https://img.shields.io/github/license/i-christian/pgqueue)](./LICENSE)
-[![Project Status](https://img.shields.io/badge/status-learning--project-orange)](#)
 [![Tests](https://github.com/i-christian/pgqueue/actions/workflows/ci.yml/badge.svg)](https://github.com/i-christian/pgqueue/actions/workflows/ci.yml)
 
 **pgqueue** is a lightweight, asynchronous, durable, PostgreSQL-backed job queue for Go.
