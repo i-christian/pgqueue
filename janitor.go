@@ -21,7 +21,7 @@ func (q *Queue) runMaintenanceLoop(db *sql.DB, stmts *queries.Prepared) {
 		rescueTicker = time.NewTicker(q.config.rescueInterval)
 		q.logger.Info("Internal Rescue started")
 	} else {
-		rescueTicker = time.NewTicker(24 * time.Hour)
+		rescueTicker = time.NewTicker(1 * time.Hour)
 		rescueTicker.Stop()
 	}
 
@@ -41,6 +41,15 @@ func (q *Queue) runMaintenanceLoop(db *sql.DB, stmts *queries.Prepared) {
 			cleanupTicker.Stop()
 		}
 	}()
+
+	if _, err := db.ExecContext(q.ctx, queries.EnsurePartitions); err != nil {
+		q.logger.Error("Startup partition maintenance failed", "error", err)
+	}
+	if q.config.cleanupEnabled {
+		if err := q.runCleanup(q.ctx, db); err != nil {
+			q.logger.Error("Startup cleanup failed", "error", err)
+		}
+	}
 
 	for {
 		select {
@@ -72,7 +81,8 @@ func (q *Queue) runMaintenanceLoop(db *sql.DB, stmts *queries.Prepared) {
 // rescueStuckTasks finds tasks that have been 'processing' for too long
 // and resets them to 'pending', or marks them failed if retries are exhausted.
 func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration, stmts *queries.Prepared) (int64, error) {
-	res, err := stmts.RescueStuckTasks.ExecContext(ctx,
+	res, err := stmts.RescueStuckTasks.ExecContext(
+		ctx,
 		timeout.Seconds(),
 		TaskFailed,
 		TaskProcessing,
@@ -87,7 +97,7 @@ func (q *Queue) rescueStuckTasks(ctx context.Context, timeout time.Duration, stm
 
 // runCleanup executes the cleanup strategy defined in configuration
 func (q *Queue) runCleanup(ctx context.Context, db *sql.DB) error {
-	retentionMonths := max(q.config.cleanupRetentionMonths, 1)
+	retentionMonths := max(q.config.cleanupRetentionMonths, 0)
 
 	doDelete := q.config.cleanupStrategy == DeleteStrategy
 
@@ -102,7 +112,8 @@ func (q *Queue) runCleanup(ctx context.Context, db *sql.DB) error {
 		if doDelete {
 			action = "Deleted (dropped)"
 		}
-		q.logger.Info("Maintenance complete on old task partitions",
+		q.logger.Info(
+			"Maintenance complete on old task partitions",
 			"action", action,
 			"count", processedCount,
 			"retention_months", retentionMonths,
