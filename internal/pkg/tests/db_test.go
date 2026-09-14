@@ -255,3 +255,60 @@ func TestPartitionCleanup(t *testing.T) {
 		t.Errorf("Partition %s should have been skipped (kept) due to active tasks, but it was dropped", part2Name)
 	}
 }
+
+func TestPartitionArchive(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	fourMonthsAgo := now.AddDate(0, -4, 0)
+	part4Name := fmt.Sprintf("tasks_y%04d_m%02d", fourMonthsAgo.Year(), int(fourMonthsAgo.Month()))
+
+	_, err := db.ExecContext(ctx, "SELECT pgqueue.ensure_partition('pgqueue.tasks', -4)")
+	if err != nil {
+		t.Fatalf("Failed to create -4 month partition: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO pgqueue.tasks (task_id, task_type, payload, status, created_at, priority, max_retries)
+		VALUES ($1, 'test:archive', '{}', 'done', $2, 1, 3)
+	`, uuid.New(), fourMonthsAgo)
+	if err != nil {
+		t.Fatalf("Failed to insert done task: %v", err)
+	}
+
+	var processedCount int
+	err = db.QueryRowContext(ctx, "SELECT pgqueue.manage_old_partitions('pgqueue.tasks', 1, false)").Scan(&processedCount)
+	if err != nil {
+		t.Fatalf("manage_old_partitions failed: %v", err)
+	}
+
+	if processedCount != 1 {
+		t.Errorf("Expected 1 partition to be processed, got %d", processedCount)
+	}
+
+	var exists bool
+	err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname = $1)", part4Name).Scan(&exists)
+	if err != nil {
+		t.Fatalf("Failed to query catalog for part4 existence: %v", err)
+	}
+	if !exists {
+		t.Fatalf("Partition %s should NOT have been dropped during archive, but it is gone", part4Name)
+	}
+
+	var isAttached bool
+	err = db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_inherits
+			JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+			JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+			WHERE parent.relname = 'tasks' AND child.relname = $1
+		)
+	`, part4Name).Scan(&isAttached)
+	if err != nil {
+		t.Fatalf("Failed to query inheritance catalog: %v", err)
+	}
+	if isAttached {
+		t.Errorf("Table %s is still attached as a partition, expected it to be detached", part4Name)
+	}
+}
