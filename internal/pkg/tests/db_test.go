@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -76,7 +77,8 @@ func TestTaskQueries(t *testing.T) {
 	nextRunAt := createdAt
 	payload := []byte(`{"hello":"world"}`)
 
-	_, err = stmts.EnqueueTask.ExecContext(ctx,
+	_, err = stmts.EnqueueTask.ExecContext(
+		ctx,
 		taskID, createdAt, "test:query", 1, 3, payload, nextRunAt, nil,
 	)
 	if err != nil {
@@ -148,7 +150,8 @@ func TestCronQueries(t *testing.T) {
 	nextRun := now.Add(time.Minute)
 
 	var returnedID uuid.UUID
-	err = stmts.UpsertCronJob.QueryRowContext(ctx,
+	err = stmts.UpsertCronJob.QueryRowContext(
+		ctx,
 		jobID, "daily_report", "0 0 * * *", nextRun, now,
 	).Scan(&returnedID)
 	if err != nil {
@@ -159,7 +162,8 @@ func TestCronQueries(t *testing.T) {
 	}
 
 	newNextRun := now.Add(2 * time.Minute)
-	err = stmts.UpsertCronJob.QueryRowContext(ctx,
+	err = stmts.UpsertCronJob.QueryRowContext(
+		ctx,
 		uuid.New(), "daily_report", "0 12 * * *", newNextRun, now,
 	).Scan(&returnedID)
 	if err != nil {
@@ -184,5 +188,70 @@ func TestCronQueries(t *testing.T) {
 	_, err = stmts.DeleteCronJob.ExecContext(ctx, jobID)
 	if err != nil {
 		t.Fatalf("DeleteCronJob failed: %v", err)
+	}
+}
+
+func TestPartitionCleanup(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	twoMonthsAgo := now.AddDate(0, -2, 0)
+	threeMonthsAgo := now.AddDate(0, -3, 0)
+
+	part2Name := fmt.Sprintf("tasks_y%04d_m%02d", twoMonthsAgo.Year(), int(twoMonthsAgo.Month()))
+	part3Name := fmt.Sprintf("tasks_y%04d_m%02d", threeMonthsAgo.Year(), int(threeMonthsAgo.Month()))
+
+	_, err := db.ExecContext(ctx, "SELECT pgqueue.ensure_partition('pgqueue.tasks', -2)")
+	if err != nil {
+		t.Fatalf("Failed to create -2 month partition: %v", err)
+	}
+	_, err = db.ExecContext(ctx, "SELECT pgqueue.ensure_partition('pgqueue.tasks', -3)")
+	if err != nil {
+		t.Fatalf("Failed to create -3 month partition: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO pgqueue.tasks (task_id, task_type, payload, status, created_at, priority, max_retries)
+		VALUES ($1, 'test:keep', '{}', 'pending', $2, 1, 3)
+	`, uuid.New(), twoMonthsAgo)
+	if err != nil {
+		t.Fatalf("Failed to insert pending task: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO pgqueue.tasks (task_id, task_type, payload, status, created_at, priority, max_retries)
+		VALUES ($1, 'test:clean', '{}', 'done', $2, 1, 3)
+	`, uuid.New(), threeMonthsAgo)
+	if err != nil {
+		t.Fatalf("Failed to insert done task: %v", err)
+	}
+
+	var processedCount int
+	err = db.QueryRowContext(ctx, "SELECT pgqueue.manage_old_partitions('pgqueue.tasks', 1, true)").Scan(&processedCount)
+	if err != nil {
+		t.Fatalf("manage_old_partitions failed: %v", err)
+	}
+
+	if processedCount != 1 {
+		t.Errorf("Expected 1 partition to be processed, got %d", processedCount)
+	}
+
+	var exists bool
+
+	err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname = $1)", part3Name).Scan(&exists)
+	if err != nil {
+		t.Fatalf("Failed to query catalog for part3: %v", err)
+	}
+	if exists {
+		t.Errorf("Partition %s should have been dropped, but it still exists", part3Name)
+	}
+
+	err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname = $1)", part2Name).Scan(&exists)
+	if err != nil {
+		t.Fatalf("Failed to query catalog for part2: %v", err)
+	}
+	if !exists {
+		t.Errorf("Partition %s should have been skipped (kept) due to active tasks, but it was dropped", part2Name)
 	}
 }
