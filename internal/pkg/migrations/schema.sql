@@ -82,9 +82,14 @@ DECLARE
     partition_record RECORD;
     cutoff_date DATE := date_trunc('month', now() - (retention_months || ' months')::interval);
     processed_count INTEGER := 0;
-    schema_name TEXT := 'pgqueue';
-    base_table TEXT := target_table;
+    schema_name TEXT := split_part(target_table, '.', 1);
+    base_table TEXT := split_part(target_table, '.', 2);
 BEGIN
+    IF base_table = '' THEN
+        base_table := target_table;
+        schema_name := 'public';
+    END IF;
+
     FOR partition_record IN
         SELECT child.relname AS partition_name
         FROM pg_inherits
@@ -96,7 +101,7 @@ BEGIN
     LOOP
         IF partition_record.partition_name ~ '_y[0-9]{4}_m[0-9]{2}$' THEN
             DECLARE
-                partition_date DATE := to_date(substring(partition_record.partition_name from '_y([0-9]{4}_m[0-9]{2})$'), 'YYYY_mMM');
+                partition_date DATE := to_date(substring(partition_record.partition_name from '_y([0-9]{4}_m[0-9]{2})$'), 'YYYY_"m"MM');
                 active_tasks INTEGER;
             BEGIN
                 IF partition_date < cutoff_date THEN
@@ -115,7 +120,7 @@ BEGIN
                     END IF;
                 END IF;
             EXCEPTION WHEN OTHERS THEN
-                -- Skip unparseable partitions safely
+                RAISE WARNING 'Skipping partition %, error: %', partition_record.partition_name, SQLERRM;
             END;
         END IF;
     END LOOP;
